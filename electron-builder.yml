@@ -15,17 +15,13 @@ mac:
     - dmg
   category: public.app-category.utilities
   icon: build/icon.png
-  # Unsigned local build (no Apple Developer cert required). To ship a signed +
-  # notarized app later, remove this line and configure a Developer ID identity.
   identity: null
+  publish: never
 win:
   target:
     - nsis
   icon: build/icon.ico
-  # Unsigned — no certificate required for testing.
-  # To sign for production, set the CSC_LINK / CSC_KEY_PASSWORD env vars in CI.
-  signingHashAlgorithms: []
-  sign: null
+  publish: never
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
