@@ -28,7 +28,7 @@ jobs:
         run: node scripts/patch-wasabi-compat.js
 
       - name: Build & package (macOS)
-        run: npm run dist:mac
+        run: npx electron-vite build && npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
@@ -57,9 +57,7 @@ jobs:
         run: node scripts/patch-wasabi-compat.js
 
       - name: Build & package (Windows)
-        run: npm run dist:win
-        env:
-          WIN_CSC_LINK: ''
+        run: npx electron-vite build && npx electron-builder --win --publish never
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
