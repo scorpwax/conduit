@@ -21,7 +21,7 @@ mac:
 win:
   target:
     - nsis
-  icon: build/icon.png
+  icon: build/icon.ico
   # Unsigned — no certificate required for testing.
   # To sign for production, set the CSC_LINK / CSC_KEY_PASSWORD env vars in CI.
   signingHashAlgorithms: []
@@ -29,5 +29,5 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  installerIcon: build/icon.png
-  uninstallerIcon: build/icon.png
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
