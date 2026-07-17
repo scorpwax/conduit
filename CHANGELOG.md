@@ -1,0 +1,455 @@
+# Changelog
+
+All notable changes to Conduit are recorded here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/), and Conduit
+uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
+- **MAJOR** — big or breaking changes
+- **MINOR** — new features, backwards-compatible
+- **PATCH** — bug fixes and small tweaks
+
+## [Unreleased]
+
+_Work in progress lands here, then moves under a version heading on release._
+
+## [1.8.9] — 2026-07-17
+
+### Added
+- **Windows support** — Conduit now builds and runs on Windows 10/11. NSIS installer produced by GitHub Actions CI on every push to main.
+- **GitHub Actions build workflow** — `.github/workflows/build.yml` builds a macOS DMG and a Windows installer in parallel on every push to `main`, and on-demand via the Actions tab. Artifacts are downloadable directly from GitHub.
+
+### Fixed (Windows compatibility)
+- macOS traffic-light titlebar spacer is now hidden on Windows (was always visible, wasting 62px of toolbar space)
+- Quick Look (spacebar preview) is now macOS-only — hidden from the context menu and keyboard handler on Windows
+- "Reveal in Finder" and "Mount to Desktop" are now hidden on Windows (macFUSE / rclone mount is macOS-only)
+- Folder size calculation now uses a pure-Node recursive stat walk on Windows instead of `du -sk` (Unix-only)
+- rclone S3 mount and unmount are guarded against Windows (clear error message instead of silent crash)
+
+## [1.8.8] — 2026-07-16
+
+### Added
+- **Export connection profile** — each saved connection in the connection picker now has a ↓ export button alongside the star/edit/delete icons. Clicking it opens the native save dialog and writes a `.conduit` profile file, the same format accepted by "Import Connection…". Previously export was only reachable by right-clicking a connection.
+
+### Fixed
+- **"Choose Connection" → New Connection form** — the empty-pane placeholder button now opens the New Connection form directly instead of the connection picker dropdown.
+
+## [1.8.7] — 2026-07-16
+
+### Added
+- **Get Info — Web URL** — S3 and Wasabi files now show their public HTTPS URL (e.g. `https://studios-production.s3.us-west-2.wasabisys.com/00_UNSORTED/file.braw`). Uses virtual-hosted style, derived from the connection's bucket + endpoint/region.
+- **Get Info — Checksum** — files on S3/Wasabi show their ETag (MD5 for simple uploads). Fetched live from `HeadObject` so it always reflects what's on the server.
+- **Get Info — File Type** — shows the human-readable type label (same as the Type column in the file list, e.g. "BRAW Video", "WAV Audio").
+- **Get Info — click any row to copy** — clicking any row in the Get Info panel copies its value to the clipboard and briefly shows "Copied!".
+- **Breadcrumb → Copy Path** — right-clicking any breadcrumb segment now offers "Copy Path" in addition to "Open in New Pane" and "Add to Favorites".
+
+### Fixed
+- **Rename fails on files >5 GB** — S3's `CopyObject` API rejects files over 5 GB with "copy source is larger than the maximum allowable size". Rename now automatically uses multipart copy (`UploadPartCopy`) for large files (128 MB parts), with a clean abort on failure. This fixes renaming large BRAW/R3D/MOV camera originals on Wasabi.
+
+## [1.8.6] — 2026-07-16
+
+### Added
+- **Get Info** (right-click menu) — opens a panel showing all available metadata for the file or folder: name, kind, full path, size, and last-modified date. Size and modified date are re-fetched live from the connection so values are always accurate.
+- **Copy Path** (right-click menu) — copies the full path of the file or folder to the clipboard (e.g. `/studios-productions/00_UNSORTED/file.wav`). A small toast notification confirms the copy.
+- **Transfer size verification** — after every successful file transfer, Conduit stats the destination to confirm the written size matches the source size. A warning is logged if they differ, making silent corruption or truncation visible in the Activity Log.
+
+### Fixed
+- **Log Export now respects current filters** — Export only writes the entries currently visible (filtered by level, date range, and search query), not the full raw log. The count shown in the footer matches exactly what gets exported.
+
+## [1.8.5] — 2026-07-15
+
+### Added
+- **Drop files onto folders** — files can now be dragged and dropped directly onto a folder row in any pane, just like Finder. Works for cross-pane drags (e.g. local → a specific Wasabi subfolder), same-pane drags (reorganize files within the same connection), and native OS drags from Finder or the desktop. When hovering over a folder target the folder highlights and the pane no longer also highlights, so it's clear exactly where the files will land.
+
+## [1.8.4] — 2026-07-15
+
+### Fixed
+- **Wasabi multipart upload Deserialization error** — `CreateMultipartUpload` and `CompleteMultipartUpload` were still throwing `Invalid RFC7231 date-time value` from Wasabi's non-standard `Expires` header, aborting all large-file transfers before any data was sent. Previous attempts (HTTP-handler subclass, client middleware) were bypassed by the AWS SDK's newer schema-based serde pipeline. The actual fix patches `@smithy/core`'s `_parseRfc7231DateTime` to fall back to RFC3339 parsing (which already handles Wasabi's ISO 8601 format) before throwing — fixing the error at its source. A `postinstall` script re-applies the patch automatically after `npm install` so it survives dependency updates.
+
+## [1.8.3] — 2026-07-15
+
+### Fixed
+- **Genuine upload progress for large files** — files over 50 MB now use multipart upload (16 MB parts), so progress advances as each part is confirmed by the server rather than jumping to 100% as soon as bytes are buffered locally. The extended "Waiting for server…" phase after the progress bar fills is now a brief finalisation step (typically a few seconds) rather than several minutes.
+- **Root-cause fix for Wasabi Deserialization errors** — previously, Wasabi's non-standard ISO 8601 `Expires` header caused the AWS SDK smithy parser to throw before it could extract the multipart `UploadId`, silently discarding large uploads. The fix intercepts Wasabi's HTTP responses at the transport layer (before deserialization) and strips the `Expires` header. This removes the error at its source rather than swallowing it after the fact, and restores multipart upload compatibility with Wasabi.
+
+## [1.8.2] — 2026-07-15
+
+### Changed
+- **Clearer large-file upload feedback** — large files (e.g. 1–4 GB WAV files) go through two distinct phases: the app streams bytes to the network (progress fills 0→100%), then waits for the server's HTTP 200 confirmation (server-side processing). The old "Finalizing…" label made this phase look frozen. It now shows:
+  - **Per-row**: "Waiting for server · 2m 15s" with a running elapsed timer, so you can see time is passing
+  - **Panel header**: "4 files · 7.9 GB · Waiting for server…" replaces the blank speed field
+  - **Progress bar center**: "Waiting for server…" replaces "Finalizing…"
+- The elapsed timer on each row starts counting the moment that file enters the server-wait phase, giving an accurate view of how long the server has been processing that specific file.
+
+## [1.8.1] — 2026-07-14
+
+### Fixed
+- **Large file uploads to Wasabi now actually land on the server** — files larger than 50 MB were silently dropped. The root cause: the AWS SDK's multipart `Upload` class calls `CreateMultipartUpload` first; Wasabi's response includes an `Expires` header in ISO 8601 format (not RFC 7231), which the SDK's smithy parser rejects with a "Deserialization error" *before a single byte is sent*. The code was swallowing this error, marking the transfer as complete even though nothing was uploaded. Fix: removed the multipart code path entirely. All files now use `PutObjectCommand` (single-request upload) with a Transform stream for byte counting — the same path that was already working for small files. With this approach the file body is the HTTP request payload, so the server receives the data before the SDK parses the response; swallowing the Deserialization error on the 200 OK is safe.
+- **Transfer panel auto-clears on new transfer** — starting a new transfer now automatically clears any previously completed/failed transfers from the panel, so you always start with a clean view.
+
+## [1.8.0] — 2026-07-14
+
+### Changed
+- **Transfer performance overhaul (Cyberduck-inspired)** — the app now stays fully fluid during large transfers:
+  - **Timer-based progress**: I/O threads only update byte counters. A single 250ms timer reads all active items and batches the update to the renderer — exactly the pattern Cyberduck uses. The I/O path never triggers UI work.
+  - **Batched `onAdded` IPC**: new-item events are coalesced for 500ms before being sent to the renderer, reducing discovery IPC sends from ~120 down to ~24 for a 6000-file job.
+  - **`useMemo` on all O(n) panel computations**: filtering, reducing, and sorting 6000 items now only runs when the `transfers` array actually changes, not on every 250ms timer tick.
+  - **`React.memo` on `TransferRow`**: only the 3–5 actively-transferring rows re-render per tick; completed rows are skipped entirely.
+  - **App-level transfers subscription removed**: `App.tsx` no longer subscribes to `transfers` state, eliminating a class of full-app re-renders on every progress update.
+  - **Pane refresh logic moved to store**: done-transfer detection (which triggers destination pane refresh) now runs inside the store's `onUpdate` handler, not in the App component tree.
+- **Configurable transfer concurrency** — default raised from 3 to 5 simultaneous transfers (matching Cyberduck's default). Adjustable in Logs → footer via "Concurrent transfers" selector. Takes effect immediately without restart.
+
+## [1.7.0] — 2026-07-13
+
+### Changed
+- **Large-transfer performance** — the app now stays fully responsive during transfers of thousands of files (e.g. 6 000-file / 11+ GB jobs that previously caused lag and crashes):
+  - **Progressive directory walk**: `enqueue` returns immediately and discovers files in the background, streaming them to the queue in batches of up to 50. Transfers begin as soon as the first batch is discovered rather than after the entire tree is walked.
+  - **Batched IPC updates**: progress events are coalesced for 200 ms before being sent to the renderer, cutting IPC round-trips from ~60/sec down to ≤5/sec regardless of how many files are in-flight.
+  - **O(1) store updates**: the renderer now applies batch update arrays via a Map lookup instead of an O(n) array scan on every progress tick.
+  - **Capped visible list**: the transfer panel renders at most 100 completed rows plus all active/queued items, instead of all N items. A summary row shows how many older completed transfers are hidden; they clear on "Clear".
+  - **Auto-eviction**: completed, canceled, and errored items are removed from engine memory after 90 seconds, preventing unbounded RAM growth during large jobs.
+
+## [1.6.6] — 2026-07-12
+
+### Added
+- **Icons in connection dropdown** — the Favorites, Drives, and Connections sections
+  of the connection picker now show the same SVG icons used everywhere else, replacing
+  the old emoji/text abbreviations (floppy disk, "W", padlock, etc.).
+- **Border-top color accent on type cards** — each connection type card in the New
+  Connection modal now shows a 3 px colored top border matching its brand color,
+  giving a quick visual cue that matches the pane tab accent.
+- **Date filtering in Logs** — the Activity Log header now includes "All time / Today /
+  7 days / 30 days" filter chips alongside the existing level chips, so you can quickly
+  narrow the log to recent activity.
+
+### Fixed
+- **OneDrive and Dropbox icons now visible** — both icons were rendering white SVG paths
+  on the white brand-card background and were invisible. Paths now use their proper
+  brand colors (#0078D4 for OneDrive, #0061FF for Dropbox).
+
+### Changed
+- **Transfers panel starts collapsed** — the Transfers panel now opens in its collapsed
+  state by default. Click the header to expand it when you want to see per-file detail.
+
+## [1.6.5] — 2026-07-12
+
+### Added
+- **Unified connection color palette** — every connection type now has a
+  consistent brand color used across the pane tab border, connection picker
+  icon, and New Connection modal. Colors: Local (slate grey), Amazon S3
+  (amber), Wasabi (green), SFTP (purple), SMB (pink), FTP (red), WebDAV
+  (teal — distinct from SMB pink), Google Drive (Google blue), OneDrive
+  (Microsoft blue), Dropbox (Dropbox blue).
+- **Custom SVG icons for all connection types** — all ten connection types now
+  display a proper SVG icon instead of emoji or text abbreviations. Protocol
+  types (Local, S3, Wasabi, SFTP, SMB, FTP, WebDAV) use clean monochrome
+  icons on their brand-color backgrounds; cloud OAuth providers (Google Drive,
+  OneDrive, Dropbox) use their official multi-color logos on white.
+- **Type-based pane tab color** — the colored top border on each pane now
+  reflects the connection *type* (e.g. all Wasabi connections are green) instead
+  of a random hash of the connection ID. Single source of truth: `connMeta.tsx`.
+
+## [1.6.4] — 2026-07-12
+
+### Fixed
+- **Duplicate transfers in the panel (root cause fix)** — React `StrictMode`
+  intentionally double-invokes effects in development (mount → unmount →
+  remount). The `init()` effect had no cleanup, so both runs registered an
+  `onAdded` IPC listener, causing every transfer to be added to the store
+  twice. Fixed by removing `StrictMode` (it is incompatible with IPC
+  subscriptions in Electron) and making `init()` tear down any previous
+  listeners before registering new ones, so re-calls are always idempotent.
+
+## [1.6.3] — 2026-07-12
+
+### Fixed
+- **Duplicate transfer entries after window reopen** — on macOS, clicking the
+  dock icon when the window was closed called `createWindow()` again, which
+  stacked a second set of engine event listeners. Every subsequent
+  delete/transfer event was then sent twice to the renderer, producing duplicate
+  rows in the Transfers panel. Engine listeners are now registered once at module
+  scope so re-opening the window never adds extras.
+
+## [1.6.2] — 2026-07-12
+
+### Fixed
+- **No more 1-minute hang at 99% for large files** — files larger than 50 MB now
+  use S3 multipart upload (16 MB parts). Wasabi acknowledges each part
+  independently, so progress advances all the way to completion. A single
+  `PutObjectCommand` for a 1.6 GB file made the SDK wait 30–60 s for Wasabi's
+  final HTTP 200 after all bytes were sent, causing the frozen-at-99% appearance.
+- **"Finalizing…" pulse replaces frozen progress** — when all bytes have been
+  sent but the server hasn't responded yet (e.g. the last multipart completion
+  call), the progress bar pulses and shows "Finalizing…" instead of a frozen
+  percentage, so the user knows the transfer is still active.
+
+## [1.6.1] — 2026-07-12
+
+### Fixed
+- **Transfer progress no longer freezes** — the S3/Wasabi upload buffer was 8 MB,
+  causing a fast burst of progress callbacks as the local SSD filled the buffer,
+  then complete silence while the network slowly drained it. Buffer reduced to
+  256 KB so callbacks fire at network speed, giving smooth, continuous progress.
+- **Time Remaining now appears** — remaining time now uses the engine's live speed
+  estimate (updated every 50 ms) instead of the panel-level 1-second sampler, and
+  the warmup before showing an estimate is reduced from 5 s to 2 s.
+- **Elapsed and remaining update 4× more often** — the display clock now ticks
+  every 250 ms instead of every 1 s, so the counters feel live rather than
+  updating in coarse 1-second jumps.
+
+## [1.6.0] — 2026-07-12
+
+### Added
+- **Real brand icons in the connection picker** — Google Drive, OneDrive, and
+  Dropbox now show their actual logo SVGs instead of text abbreviations ("GD",
+  "1D", "DB").
+- **Finder-style keyboard navigation** — Return key renames the selected item;
+  ⌘↓ navigates into a folder; ↑/↓ arrow keys move the selection; ←/→ arrow
+  keys collapse / expand disclosure triangles on folders.
+- **Drag count badge** — when dragging more than one item, a small blue pill
+  shows "N items" near the cursor so you always know how many files are in
+  flight.
+
+### Fixed
+- **Elapsed time freezes when transfers complete** — the counter now locks at
+  the moment the last transfer finishes instead of continuing to count up
+  indefinitely.
+- **Remaining time accuracy** — remaining time is now computed from panel-level
+  byte-sample deltas (one sample per second) rather than the engine's
+  Transform-level speed, which was inflated by local disk read-ahead. The
+  5-second warm-up before showing any estimate is preserved.
+- **Overall progress visible while collapsed** — the progress bar, elapsed
+  time, and remaining time stay visible when the Transfers panel is collapsed.
+  Only the per-file list is hidden by the collapse.
+- **Single log file with date separators** — logs are now appended to one
+  `conduit.log` file instead of a new file each day. A separator banner like
+  `======= SUNDAY, JULY 12TH, 2026 =======` is inserted whenever the date
+  changes, making it easy to scan across sessions.
+- **Item count shows only visible files** — the pane footer now counts only
+  non-hidden items when "show hidden files" is off, matching what you actually
+  see in the list.
+- **Click empty space to deselect** — clicking anywhere in the file list that
+  is not a file row now clears the selection, matching Finder behavior.
+
+## [1.5.7] — 2026-07-09
+
+### Fixed
+- **No more duplicate delete/rename entries** — each operation now carries a
+  dedup key (the full path). A second delete or rename for the same path while
+  the first is still visible in the panel is silently skipped.
+- **Progress bar now shows elapsed · % · remaining in correct positions** — the
+  three labels are always rendered so `space-between` keeps the percentage
+  pinned in the center rather than drifting when the remaining estimate is
+  hidden.
+- **Clear button works instantly** — the store now clears finished transfers
+  optimistically (before the IPC round-trip) so the list empties the moment you
+  click. The IPC call still fires in the background to clean up the engine.
+- **Clear button no longer collapses the panel** — the header is split into a
+  dedicated clickable toggle zone (chevron + title + count) and a separate
+  actions zone (Cancel all / Clear). Buttons in the actions zone can never
+  accidentally trigger the collapse.
+
+## [1.5.6] — 2026-07-09
+
+### Fixed
+- **No more ~0s remaining** — speed was being measured against local disk read
+  rate (SSD reads at 1-3 GB/s) instead of actual Wasabi upload throughput. Speed
+  now uses a 5-second sliding window so it reflects real network throughput, and
+  the remaining estimate is hidden for the first 5 seconds to suppress noisy
+  early readings.
+- **Eliminated remaining duplicates** — dedup now blocks re-queuing any file
+  whose destination path is already present in the queue at any status (queued,
+  transferring, or done), not just active ones. Clear finished items if you want
+  to intentionally re-upload the same file.
+- **3-5 second startup delay cut significantly** — conflict checks now run all
+  `dest.exists()` calls in parallel instead of sequentially (was 9 × ~400ms =
+  3-4s; now ~400ms). Stat calls inside enqueue also run in parallel.
+- **TLS connections reused across transfers** — S3/Wasabi provider now uses a
+  persistent HTTPS agent (`keepAlive: true`), so the cold-start TLS handshake
+  only happens once per provider session rather than on every file.
+- **Header shows "uploading · queued" counts separately** — e.g. "3 uploading ·
+  6 queued · 2.1 GB / 9.8 GB · 120 MB/s" so you can see how many slots are busy
+  vs. waiting.
+- **Queued items show "—" not "0%"** — items waiting for a concurrency slot no
+  longer show a confusing "0%" in the speed column; they show a dash instead.
+
+## [1.5.5] — 2026-07-09
+
+### Fixed
+- **No more duplicate transfer entries** — re-queuing files that are already
+  queued or actively transferring to the same destination path is now silently
+  skipped, so the list stays clean after retries.
+- **"Transfers Complete" shown when all done** — the transfer panel header now
+  shows a green "✓ Transfers Complete" label (with a failed count if any errored)
+  once all items finish, replacing the generic "16 done" text.
+- **Progress bar stays visible after completion** — the overall progress bar and
+  elapsed time remain visible at 100% after all files finish, so you can see how
+  long the transfer took.
+- **Elapsed time now spans the full session** — previously it measured from the
+  earliest *currently-active* item's start time, so it reset when items finished.
+  Now it anchors to the earliest start across all items.
+- **Delete and rename show in Transfers** — deleting files/folders and renaming
+  items now appear as operation entries in the transfer panel (spinner while
+  running, checkmark on success, ✕ on error), so every mutation is visible in
+  one place.
+
+## [1.5.4] — 2026-07-09
+
+### Fixed
+- **App no longer crashes mid-transfer when the window closes** — progress
+  callbacks fired from the S3 upload stream could throw "Render frame was
+  disposed before WebFrameMain could be accessed" when the window was being torn
+  down. `sendToRenderer` now wraps the IPC send in a try/catch, and the
+  Transform's progress callback does the same, so stream errors can't propagate
+  up to crash the upload.
+- **Log copy shows "Copied to Clipboard" confirmation** — clicking a log row to
+  copy it now flashes a brief "Copied to Clipboard" label in the log panel header
+  for 2 seconds, so you know the copy succeeded.
+
+## [1.5.0] — 2026-07-09
+
+### Fixed
+- **Subsequent Wasabi/S3 transfers now actually transfer** — the second and later
+  transfers to Wasabi were logging SUCCESS but no files were uploaded. Root
+  cause: `walk()` called `dest.mkdir()` on every directory even when files
+  existed inside it; the `PutObjectCommand` Wasabi sends back throws a
+  `Deserialization error` parsing its response, which aborted `enqueue()` before
+  any items were queued. Fixed by (a) only calling `mkdir` for truly empty
+  directories, and (b) swallowing Wasabi's date-format parse error in `mkdir`
+  the same way it was already swallowed in `writeFile`.
+- **Transfer pane resizable again** — the panel could not be dragged to a new
+  height because the file list was overflowing its bounds. Added `flex: 1;
+  min-height: 0` to `.transfer-list` so content is clipped to the dragged size.
+- **Overall progress bar now shows true aggregate progress** — bytes from
+  completed items were dropped as they finished, causing the percentage to
+  stall or regress. The bar now counts all non-canceled/non-errored items so it
+  moves steadily forward and reaches 100%.
+- **Cancel All requires confirmation** — clicking "Cancel all" now shows the
+  same danger-styled confirmation dialog used by Delete, preventing accidental
+  cancellations.
+- **Status bar shows real folder sizes** — selected folder sizes in the pane
+  footer now reflect the calculated disk usage (shown after the auto-fetch
+  completes) rather than always reading 0. Folder size state was lifted from
+  FileList to Pane so the status bar can access it.
+- **Folder sizes auto-fetch in expanded subdirectories** — when you expand a
+  folder with the disclosure triangle, any subdirectories inside it now also
+  auto-calculate their sizes (previously only top-level dirs were fetched).
+
+## [1.4.0] — 2026-07-08
+
+### Added
+- **Mount S3 / Wasabi to Desktop** — right-click an S3 or Wasabi connection in
+  the dropdown → Reveal in Finder or Mount to Desktop now works for cloud
+  buckets via `rclone` (requires `brew install rclone` and
+  `brew install --cask macfuse`). A clear error message is shown if rclone is
+  not installed.
+- **Folder sizes auto-load** — on local and SMB connections, folder sizes
+  populate automatically when you open a directory (shown as `…` while
+  calculating). No need to click the dash anymore.
+
+### Fixed
+- **SFTP `.local` hostname resolution** — connecting to a Mac by its `.local`
+  Bonjour name (e.g. `MS-MWAX-BNI.local`) no longer fails with
+  `ENOTFOUND`. Node's DNS is pre-resolved through the OS mDNS stack before
+  the SSH library sees it.
+
+## [1.3.0] — 2026-07-08
+
+### Added
+- **Select All / Deselect All** — right-click in any pane to select every visible
+  item at once, or clear the selection; ⌘A selects all from the keyboard.
+- **Folder sizes on demand** — click the `—` in the Size column next to any
+  folder to calculate its full disk usage; shows `…` while computing, then the
+  real size.
+- **Selected size in the status bar** — the pane footer now reads
+  "7 Items · 3 selected · 365 MB" when files are selected.
+- **Pane color coding** — each connection is assigned a distinct accent color
+  from a palette of 8, shown as a 3 px top border on the connection bar.
+  Colors are deterministic (same connection always gets the same color) so
+  muscle memory builds up naturally.
+- **Reveal in Finder** — right-click any local or SMB connection in the
+  connection dropdown → Reveal in Finder opens the mount point in the OS.
+- **Mount to Desktop** — right-click a local or SMB connection in the dropdown
+  → Mount to Desktop creates a symlink on your Desktop pointing at the mount
+  root, so the share is one click away from the Finder.
+
+### Fixed
+- **Cancel All** now reliably reflects the canceled state in the transfer list
+  immediately (adds a full resync after the IPC call).
+
+## [1.2.0] — 2026-07-08
+
+### Added
+- **Connection status lights in the dropdown** — a colored dot next to each
+  saved connection shows at a glance whether it is connected (green), loading
+  (yellow), in error (red), or live in the background (dim green, pane closed
+  but still connected).
+- **Background connections** — closing a pane no longer disconnects it.
+  The connection stays live until you hit the ⏏ Disconnect button or quit the
+  app, and its dim green dot in the dropdown confirms it.
+- **Overall transfer progress bar** — a full-width bar below the Transfers
+  header shows aggregate progress across all active transfers, plus elapsed
+  time and an estimated time remaining.
+- **Active transfers sort to the top** — the transfer list now shows
+  transferring items first, then queued, then done/failed (most recent first).
+- **Export connection profile** — right-click any saved connection → Export
+  Profile… saves a `.conduit` JSON file (credentials are not included) that
+  you can share with a coworker.
+- **Import connection profile** — the connection dropdown has an "Import
+  Connection…" option that opens a `.conduit` file and pre-fills the New
+  Connection form so you only need to enter your own credentials.
+
+## [1.1.0] — 2026-07-07
+
+### Added
+- **Inline tree navigation** — disclosure triangles on folders expand their
+  contents in place, alongside the breadcrumbs.
+- **Drag from the OS** — drop files/folders from Finder/desktop onto a pane:
+  an empty pane opens that location; a connected pane uploads to it.
+- **Copy & paste** files/folders (right-click or ⌘C/⌘V) — copies via the
+  transfer engine, keeping the source.
+- **Adjustable font size** — A−/A+ in the toolbar and ⌘+/⌘−/⌘0 (persisted).
+- **Right-click on breadcrumbs and connection/drive entries** — Open in New
+  Pane, Add to Favorites.
+
+### Changed
+- Removed duplicate "Macintosh HD" and hidden system volumes (e.g. .timemachine)
+  from the Drives list.
+
+## [1.0.1] — 2026-07-07
+
+### Fixed
+- Quitting the app no longer throws a JavaScript error (log/transfer events were
+  being sent to the window after it was destroyed during shutdown).
+
+### Changed
+- Added `us-west-2` to the region suggestions, and made the Wasabi region field
+  free-text (like S3) so any region can be entered.
+
+## [1.0.0] — 2026-07-07
+
+First packaged release.
+
+### Connections
+- Local & external drives
+- Amazon S3 (and S3-compatible endpoints)
+- Wasabi (dedicated, auto-configured S3)
+- SFTP / SSH (including computer-to-computer transfers)
+- SMB shares (via the OS mount, with Guest/anonymous support)
+- FTP / FTPS
+- WebDAV (Nextcloud, ownCloud, Box, …)
+- Google Drive, OneDrive, Dropbox (OAuth)
+
+### Features
+- Dual (up to 5) resizable, reorderable panes with Finder-style browsing
+- Drag-and-drop transfers between any two connections
+- Live transfer progress panel with speed and cancel
+- Overwrite conflict prompt (Replace / Keep Both / Skip)
+- Delete, rename, new file/folder with confirmation dialogs
+- Right-click menu: Quick Look, Open in New Pane, Add to Favorites, Rename, Delete
+- Favorite connections and favorite folders (bookmarks)
+- Search/filter, sortable columns (Name / Size / Type / Modified)
+- Hidden-files toggle
+- Quick Look preview (Space)
+- Live activity log with retention settings, export, and search
+- Encrypted transports (SFTP, TLS for cloud/S3, FTPS default)
+- Connections disconnected cleanly on quit

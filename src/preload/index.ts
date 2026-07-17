@@ -1,0 +1,122 @@
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { IPC } from '../shared/ipc'
+import type {
+  Connection,
+  ListResult,
+  DriveInfo,
+  FileEntry,
+  TransferItem,
+  TransferRequest,
+  ConnectionTestResult,
+  Bookmark,
+  LogEntry,
+  LogLevel,
+  LogCategory,
+  AppSettings
+} from '../shared/types'
+
+/** The typed API surface exposed to the renderer as window.conduit. */
+const api = {
+  connections: {
+    getAll: (): Promise<Connection[]> => ipcRenderer.invoke(IPC.connectionsGetAll),
+    save: (conn: Connection): Promise<Connection> => ipcRenderer.invoke(IPC.connectionsSave, conn),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.connectionsRemove, id),
+    disconnect: (id: string): Promise<void> => ipcRenderer.invoke(IPC.connectionsDisconnect, id),
+    test: (conn: Connection): Promise<ConnectionTestResult> =>
+      ipcRenderer.invoke(IPC.connectionsTest, conn),
+    authorize: (args: {
+      type: string
+      clientId: string
+      clientSecret?: string
+    }): Promise<{ ok: boolean; refreshToken?: string; message?: string }> =>
+      ipcRenderer.invoke(IPC.connectionsAuthorize, args),
+    exportProfile: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.connectionsExportProfile, id),
+    importProfile: (): Promise<Connection | null> =>
+      ipcRenderer.invoke(IPC.connectionsImportProfile),
+    revealMount: (id: string): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke(IPC.connectionsRevealMount, id),
+    createDesktopShortcut: (id: string): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke(IPC.connectionsCreateDesktopShortcut, id)
+  },
+  bookmarks: {
+    getAll: (): Promise<Bookmark[]> => ipcRenderer.invoke(IPC.bookmarksGetAll),
+    add: (bookmark: Bookmark): Promise<Bookmark[]> => ipcRenderer.invoke(IPC.bookmarksAdd, bookmark),
+    remove: (id: string): Promise<Bookmark[]> => ipcRenderer.invoke(IPC.bookmarksRemove, id)
+  },
+  fs: {
+    list: (connectionId: string, path: string): Promise<ListResult> =>
+      ipcRenderer.invoke(IPC.fsList, { connectionId, path }),
+    stat: (connectionId: string, path: string): Promise<FileEntry> =>
+      ipcRenderer.invoke(IPC.fsStat, { connectionId, path }),
+    drives: (): Promise<DriveInfo[]> => ipcRenderer.invoke(IPC.fsDrives),
+    parent: (connectionId: string, path: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.fsParent, { connectionId, path }),
+    mkdir: (connectionId: string, dir: string, name: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsMkdir, { connectionId, dir, name }),
+    createFile: (connectionId: string, dir: string, name: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsCreateFile, { connectionId, dir, name }),
+    delete: (connectionId: string, path: string, kind: 'file' | 'directory'): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsDelete, { connectionId, path, kind }),
+    rename: (connectionId: string, path: string, newName: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsRename, { connectionId, path, newName }),
+    preview: (connectionId: string, path: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsPreview, { connectionId, path }),
+    folderSize: (connectionId: string, path: string): Promise<number | null> =>
+      ipcRenderer.invoke(IPC.fsFolderSize, { connectionId, path }),
+    checksum: (connectionId: string, path: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path })
+  },
+  transfer: {
+    checkConflicts: (req: TransferRequest): Promise<string[]> =>
+      ipcRenderer.invoke(IPC.transferCheckConflicts, req),
+    enqueue: (req: TransferRequest): Promise<TransferItem[]> =>
+      ipcRenderer.invoke(IPC.transferEnqueue, req),
+    getAll: (): Promise<TransferItem[]> => ipcRenderer.invoke(IPC.transferGetAll),
+    cancel: (id: string): Promise<void> => ipcRenderer.invoke(IPC.transferCancel, id),
+    cancelAll: (): Promise<void> => ipcRenderer.invoke(IPC.transferCancelAll),
+    clearFinished: (): Promise<void> => ipcRenderer.invoke(IPC.transferClearFinished),
+    onUpdate: (cb: (items: TransferItem[]) => void): (() => void) => {
+      const listener = (_e: unknown, items: TransferItem[]): void => cb(items)
+      ipcRenderer.on(IPC.evtTransferUpdate, listener)
+      return () => ipcRenderer.removeListener(IPC.evtTransferUpdate, listener)
+    },
+    onAdded: (cb: (items: TransferItem[]) => void): (() => void) => {
+      const listener = (_e: unknown, items: TransferItem[]): void => cb(items)
+      ipcRenderer.on(IPC.evtTransferAdded, listener)
+      return () => ipcRenderer.removeListener(IPC.evtTransferAdded, listener)
+    }
+  },
+  dialog: {
+    pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogPickFolder)
+  },
+  logs: {
+    getRecent: (limit?: number): Promise<LogEntry[]> => ipcRenderer.invoke(IPC.logsGetRecent, limit),
+    write: (level: LogLevel, category: LogCategory, message: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.logsWrite, { level, category, message, ts: Date.now() }),
+    openFolder: (): Promise<string> => ipcRenderer.invoke(IPC.logsOpenFolder),
+    export: (): Promise<boolean> => ipcRenderer.invoke(IPC.logsExport),
+    exportText: (text: string): Promise<boolean> => ipcRenderer.invoke(IPC.logsExportText, text),
+    clear: (): Promise<void> => ipcRenderer.invoke(IPC.logsClear),
+    onEntries: (cb: (entries: LogEntry[]) => void): (() => void) => {
+      const listener = (_e: unknown, entries: LogEntry[]): void => cb(entries)
+      ipcRenderer.on(IPC.evtLog, listener)
+      return () => ipcRenderer.removeListener(IPC.evtLog, listener)
+    }
+  },
+  settings: {
+    get: (): Promise<AppSettings> => ipcRenderer.invoke(IPC.settingsGet),
+    set: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke(IPC.settingsSet, patch)
+  },
+  app: {
+    getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appGetVersion)
+  },
+  /** Resolve the absolute path of a File dropped from the OS (Finder/desktop). */
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
+  /** The OS platform — use to conditionally show platform-specific UI. */
+  platform: process.platform
+}
+
+export type ConduitApi = typeof api
+
+contextBridge.exposeInMainWorld('conduit', api)

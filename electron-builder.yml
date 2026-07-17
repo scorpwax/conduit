@@ -1,0 +1,33 @@
+appId: co.scorpion.conduit
+productName: Conduit
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.eslintrc,.prettierrc,.gitignore}'
+asarUnpack:
+  - resources/**
+mac:
+  target:
+    - dmg
+  category: public.app-category.utilities
+  icon: build/icon.png
+  # Unsigned local build (no Apple Developer cert required). To ship a signed +
+  # notarized app later, remove this line and configure a Developer ID identity.
+  identity: null
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+  # Unsigned — no certificate required for testing.
+  # To sign for production, set the CSC_LINK / CSC_KEY_PASSWORD env vars in CI.
+  signingHashAlgorithms: []
+  sign: null
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.png
+  uninstallerIcon: build/icon.png

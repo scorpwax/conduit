@@ -1,0 +1,65 @@
+name: Build
+
+on:
+  # Run automatically when you push to main.
+  push:
+    branches: [main]
+  # Also lets you trigger a build manually from the Actions tab.
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    name: macOS (DMG)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # postinstall runs patch-wasabi-compat.js automatically via npm ci,
+      # but call it explicitly here so it's visible in the log.
+      - name: Patch Wasabi compat
+        run: node scripts/patch-wasabi-compat.js
+
+      - name: Build & package (macOS)
+        run: npm run dist:mac
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Conduit-mac
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  build-win:
+    name: Windows (NSIS installer)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Patch Wasabi compat
+        run: node scripts/patch-wasabi-compat.js
+
+      - name: Build & package (Windows)
+        run: npm run dist:win
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Conduit-win
+          path: dist/*.exe
+          if-no-files-found: error
