@@ -382,6 +382,13 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
     } else {
       setInfoChecksum(null)
       void window.conduit.fs.folderContents(pane.connectionId, entry.path).then((c) => setInfoContents(c))
+      // Auto-start size calculation if not already done
+      if (typeof folderSizes[entry.path] !== 'number' && folderSizes[entry.path] !== 'loading') {
+        setFolderSizes((s) => ({ ...s, [entry.path]: 'loading' }))
+        void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((size) => {
+          setFolderSizes((s) => ({ ...s, [entry.path]: size }))
+        })
+      }
     }
   }
 
@@ -501,24 +508,23 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
                   label="Size"
                   value={
                     isDir
-                      ? (folderSizes[infoEntry.path] === 'loading'
+                      ? (folderSizes[infoEntry.path] === 'loading' || folderSizes[infoEntry.path] === undefined
                           ? 'Calculating…'
                           : typeof folderSizes[infoEntry.path] === 'number'
                             ? formatBytes(folderSizes[infoEntry.path] as number)
-                            : 'Click to calculate')
+                            : 'Unavailable')
                       : formatBytes(infoFull?.size ?? infoEntry.size ?? 0)
-                  }
-                  onClickOverride={
-                    isDir && typeof folderSizes[infoEntry.path] !== 'number' && folderSizes[infoEntry.path] !== 'loading'
-                      ? () => fetchFolderSize(infoEntry)
-                      : undefined
                   }
                 />
                 {(infoFull?.modified ?? infoEntry.modified) && (
                   <FileInfoRow label="Modified" value={formatDate(infoFull?.modified ?? infoEntry.modified)} />
                 )}
                 {isDir && contentsLabel !== null && (
-                  <FileInfoRow label="Contents" value={contentsLabel} />
+                  <FileInfoRow
+                    label="Contents"
+                    value={contentsLabel}
+                    note="Direct children only — does not recurse into subfolders"
+                  />
                 )}
                 {!isDir && (
                   <FileInfoRow
@@ -630,20 +636,19 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
 }
 
 function FileInfoRow({
-  label, value, mono, warning, extra, onClickOverride
+  label, value, mono, warning, extra, note
 }: {
   label: string
   value: string
   mono?: boolean
   warning?: string
   extra?: string
-  onClickOverride?: () => void
+  note?: string
 }): JSX.Element {
   const [copied, setCopied] = React.useState(false)
-  const isFaded = value === 'Loading…' || value === 'Unavailable' || value === 'Calculating…' || value === 'Click to calculate'
+  const isFaded = value === 'Loading…' || value === 'Unavailable' || value === 'Calculating…'
 
   function handleClick(): void {
-    if (onClickOverride) { onClickOverride(); return }
     if (isFaded) return
     void navigator.clipboard.writeText(value)
     setCopied(true)
@@ -654,7 +659,7 @@ function FileInfoRow({
     <div
       className="info-row"
       onClick={handleClick}
-      title={onClickOverride ? 'Click to calculate' : isFaded ? undefined : 'Click to copy'}
+      title={isFaded ? undefined : 'Click to copy'}
     >
       <span className="info-label">{label}</span>
       <span className="info-value-wrap">
@@ -669,6 +674,9 @@ function FileInfoRow({
         )}
         {warning && (
           <span className="info-warning">⚠ {warning}</span>
+        )}
+        {note && (
+          <span className="info-note">{note}</span>
         )}
       </span>
     </div>
