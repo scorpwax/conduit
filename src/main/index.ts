@@ -32,7 +32,55 @@ const sendToRenderer = (channel: string, payload: unknown): void => {
   }
 }
 // Updates are already throttled by the engine's 250ms progress timer — send directly.
-transferEngine.on('update', (items) => sendToRenderer(IPC.evtTransferUpdate, items))
+transferEngine.on('update', (items) => {
+  sendToRenderer(IPC.evtTransferUpdate, items)
+  updateSystemProgress(items)
+})
+
+let dockClearTimer: ReturnType<typeof setTimeout> | null = null
+let prevAllDone = false
+
+function updateSystemProgress(items: import('@shared/types').TransferItem[]): void {
+  const active = items.filter(i => i.status === 'transferring')
+  const pending = items.filter(i => i.status === 'queued')
+  const done = items.filter(i => i.status === 'done' || i.status === 'error' || i.status === 'canceled')
+  const total = items.length
+  const allDone = total > 0 && active.length === 0 && pending.length === 0
+  const win = mainWindow
+
+  if (dockClearTimer && !allDone) {
+    clearTimeout(dockClearTimer)
+    dockClearTimer = null
+  }
+
+  if (active.length > 0 || pending.length > 0) {
+    // Transfers in progress
+    prevAllDone = false
+    const progress = total > 0 ? done.length / total : 0
+    if (process.platform === 'darwin') {
+      app.dock?.setBadge(String(active.length + pending.length))
+    } else if (process.platform === 'win32' && win) {
+      win.setProgressBar(progress)
+    }
+  } else if (allDone && !prevAllDone) {
+    // Just finished — show completion indicator briefly
+    prevAllDone = true
+    if (process.platform === 'darwin') {
+      app.dock?.setBadge('✓')
+    } else if (process.platform === 'win32' && win) {
+      win.setProgressBar(1)
+    }
+    dockClearTimer = setTimeout(() => {
+      if (process.platform === 'darwin') app.dock?.setBadge('')
+      else if (process.platform === 'win32' && win) win.setProgressBar(-1)
+      dockClearTimer = null
+    }, 3000)
+  } else if (total === 0) {
+    prevAllDone = false
+    if (process.platform === 'darwin') app.dock?.setBadge('')
+    else if (process.platform === 'win32' && win) win.setProgressBar(-1)
+  }
+}
 
 // Batch 'added' events with a 500ms window to reduce IPC pressure during
 // large directory walks (e.g. 6000-file job: 120 raw events → ~24 IPC sends).
