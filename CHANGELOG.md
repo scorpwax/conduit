@@ -12,6 +12,12 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.9.2] — 2026-07-19
+
+### Added
+- **Folder Modified date in file list** — once a folder's size has been calculated, its most-recently-modified child date also populates the Modified column (previously always "—" for S3/Wasabi folders).
+- **"Calculating size…" status bar message** — a centered italic label appears in the pane status bar while any folder size walk is in progress, disappearing automatically when done.
+
 ## [1.9.1] — 2026-07-19
 
 ### Fixed

@@ -629,7 +629,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
                   : formatBytes(entry.size)}
               </div>
               <div className="file-type">{fileType(entry.name, entry.kind)}</div>
-              <div className="file-mod">{formatDate(entry.modified)}</div>
+              <div className="file-mod">{(() => {
+                if (entry.modified) return formatDate(entry.modified)
+                if (isDir) {
+                  const fsz = folderSizes[entry.path]
+                  if (fsz && typeof fsz === 'object' && fsz.latestModified) return formatDate(fsz.latestModified)
+                }
+                return '—'
+              })()}</div>
             </div>
           )
         })

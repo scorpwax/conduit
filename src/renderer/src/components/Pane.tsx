@@ -347,6 +347,9 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
           {selCount > 0 && ` · ${selCount} selected`}
           {selCount > 0 && selectedBytes !== null && ` · ${formatBytes(selectedBytes)}`}
         </span>
+        {Object.values(folderSizes).some((v) => v === 'loading') && (
+          <span className="status-calculating">Calculating size…</span>
+        )}
         <span>{connection ? typeLabel(connection) : ''}</span>
       </div>
 

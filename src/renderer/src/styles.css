@@ -467,11 +467,20 @@ select {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	position: relative;
 	padding: 5px 12px;
 	font-size: 11px;
 	color: var(--text-faint);
 	border-top: 1px solid var(--border);
 	background: var(--bg-elev);
+}
+
+.status-calculating {
+	position: absolute;
+	left: 50%;
+	transform: translateX(-50%);
+	font-style: italic;
+	pointer-events: none;
 }
 
 /* ---------- Buttons ---------- */
