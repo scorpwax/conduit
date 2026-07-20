@@ -1588,6 +1588,154 @@ select {
 	min-width: 84px;
 }
 
+/* ── File Tree modal ─────────────────────────────────── */
+
+.tree-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.55);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 200;
+}
+
+.tree-panel {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	width: 680px;
+	max-width: 92vw;
+	max-height: 80vh;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 24px 64px rgba(0,0,0,.5);
+}
+
+.tree-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 14px 16px 10px;
+	border-bottom: 1px solid var(--border);
+	flex-shrink: 0;
+}
+
+.tree-header-left {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.tree-title {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: .06em;
+	color: var(--text-faint);
+}
+
+.tree-folder-name {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text);
+}
+
+.tree-loading {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 40px 20px;
+	justify-content: center;
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+.tree-loading-spinner {
+	width: 18px;
+	height: 18px;
+	border: 2px solid var(--border);
+	border-top-color: var(--accent);
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+	flex-shrink: 0;
+}
+
+.tree-summary {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 16px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	color: var(--text-faint);
+	flex-shrink: 0;
+	flex-wrap: wrap;
+}
+
+.tree-summary-dot {
+	color: var(--border-strong);
+}
+
+.tree-truncated {
+	font-size: 11px;
+	color: var(--warn);
+	padding: 4px 16px 6px;
+	flex-shrink: 0;
+}
+
+.tree-body {
+	flex: 1;
+	overflow-y: auto;
+	padding: 10px 16px 10px;
+	font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+	font-size: 12px;
+	line-height: 1.65;
+}
+
+.tree-root-name {
+	color: var(--text);
+	font-weight: 600;
+	padding-bottom: 2px;
+}
+
+.tree-line {
+	display: flex;
+	align-items: baseline;
+	gap: 0;
+	white-space: pre;
+}
+
+.tree-prefix {
+	color: var(--text-faint);
+	flex-shrink: 0;
+	user-select: none;
+}
+
+.tree-name {
+	color: var(--text);
+	white-space: nowrap;
+}
+
+.tree-dir {
+	color: var(--accent);
+}
+
+.tree-meta {
+	color: var(--text-faint);
+	font-size: 11px;
+	margin-left: 8px;
+	white-space: nowrap;
+}
+
+.tree-footer {
+	padding: 10px 16px 14px;
+	border-top: 1px solid var(--border);
+	display: flex;
+	justify-content: flex-end;
+	flex-shrink: 0;
+}
+
 /* scrollbars */
 ::-webkit-scrollbar {
 	width: 11px;

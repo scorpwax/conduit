@@ -1,5 +1,5 @@
 import type { Readable } from 'stream'
-import type { Connection, FileEntry, ListResult, ConnectionTestResult } from '@shared/types'
+import type { Connection, FileEntry, ListResult, ConnectionTestResult, FolderTreeResult } from '@shared/types'
 
 /**
  * A Provider abstracts one connection type (local disk, S3, later SFTP/SMB)
@@ -71,4 +71,11 @@ export interface Provider {
    * most-recent modification date among them. Null when not supported.
    */
   folderSize?(path: string): Promise<{ size: number; latestModified: string | null } | null>
+
+  /**
+   * Build a full recursive file tree for a folder. Providers with efficient
+   * bulk-listing (e.g. S3 ListObjectsV2 without delimiter) should implement
+   * this; others fall back to the generic recursive list() loop in the IPC handler.
+   */
+  folderTree?(path: string): Promise<FolderTreeResult>
 }

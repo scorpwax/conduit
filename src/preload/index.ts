@@ -13,7 +13,8 @@ import type {
   LogLevel,
   LogCategory,
   AppSettings,
-  UiState
+  UiState,
+  FolderTreeResult
 } from '../shared/types'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
@@ -68,7 +69,9 @@ const api = {
     checksum: (connectionId: string, path: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path }),
     folderContents: (connectionId: string, path: string): Promise<{ files: number; folders: number } | null> =>
-      ipcRenderer.invoke(IPC.fsFolderContents, { connectionId, path })
+      ipcRenderer.invoke(IPC.fsFolderContents, { connectionId, path }),
+    folderTree: (connectionId: string, path: string): Promise<FolderTreeResult> =>
+      ipcRenderer.invoke(IPC.fsFolderTree, { connectionId, path })
   },
   transfer: {
     checkConflicts: (req: TransferRequest): Promise<string[]> =>

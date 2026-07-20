@@ -222,6 +222,25 @@ export interface AppSettings {
   skipQuitConfirm?: boolean
 }
 
+/** A node in a recursive folder tree. */
+export interface TreeNode {
+  name: string
+  kind: 'file' | 'directory'
+  size: number
+  modified: string | null
+  children: TreeNode[]
+}
+
+/** Result returned by the fsFolderTree IPC handler. */
+export interface FolderTreeResult {
+  tree: TreeNode[]
+  totalFiles: number
+  totalFolders: number
+  totalSize: number
+  /** True when the folder exceeded the 25 000-item limit and results are partial. */
+  truncated: boolean
+}
+
 /** UI layout state saved on quit and restored on next launch. */
 export interface UiState {
   /** Window bounds (x, y may be undefined on first launch). */

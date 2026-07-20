@@ -3,7 +3,7 @@ import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { IPC } from '@shared/ipc'
-import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState } from '@shared/types'
+import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult } from '@shared/types'
 import { logger, log } from './logger'
 import { getSettings, updateSettings } from './settings'
 import { connectionStore } from './store'
@@ -481,6 +481,47 @@ function registerIpc(): void {
     if (patch.transferConcurrency !== undefined) transferEngine.setConcurrency(settings.transferConcurrency)
     return settings
   })
+
+  ipcMain.handle(
+    IPC.fsFolderTree,
+    async (_e, args: { connectionId: string; path: string }): Promise<FolderTreeResult> => {
+      const provider = await getProvider(args.connectionId)
+
+      // Providers with an efficient bulk-listing implementation (e.g. S3).
+      if (provider.folderTree) return await provider.folderTree(args.path)
+
+      // Generic fallback: recursive provider.list() for SFTP, FTP, WebDAV, local, etc.
+      const MAX = 25000
+      const state = { count: 0, truncated: false, totalFiles: 0, totalFolders: 0, totalSize: 0 }
+
+      async function buildLevel(dirPath: string): Promise<TreeNode[]> {
+        if (state.count >= MAX) { state.truncated = true; return [] }
+        const result = await provider.list(dirPath)
+        const nodes: TreeNode[] = []
+
+        for (const entry of result.entries) {
+          if (state.count >= MAX) { state.truncated = true; break }
+          state.count++
+
+          if (entry.kind === 'directory') {
+            state.totalFolders++
+            const children = await buildLevel(entry.path)
+            nodes.push({ name: entry.name, kind: 'directory', size: 0, modified: entry.modified, children })
+          } else {
+            state.totalFiles++
+            state.totalSize += entry.size ?? 0
+            nodes.push({ name: entry.name, kind: 'file', size: entry.size ?? 0, modified: entry.modified, children: [] })
+          }
+        }
+
+        nodes.sort((a, b) => a.kind !== b.kind ? (a.kind === 'directory' ? -1 : 1) : a.name.localeCompare(b.name))
+        return nodes
+      }
+
+      const tree = await buildLevel(args.path)
+      return { tree, totalFiles: state.totalFiles, totalFolders: state.totalFolders, totalSize: state.totalSize, truncated: state.truncated }
+    }
+  )
 
   ipcMain.handle(IPC.appNotify, (_e, args: { title: string; body: string }) => {
     if (Notification.isSupported()) {

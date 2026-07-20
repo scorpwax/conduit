@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.11.0] — 2026-07-20
+
+### Added
+- **File Tree** — right-click any folder → "File Tree…" opens a modal showing the full recursive tree with ASCII art connectors (├──/└──/│). Displays file sizes and modified dates inline. Scrollable; loads in the background with a spinner for remote folders. Truncates at 25,000 items with a visible warning. "Export as .txt" saves a plain-text copy of the tree via the system save dialog.
+
 ## [1.10.0] — 2026-07-19
 
 ### Added

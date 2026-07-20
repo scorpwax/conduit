@@ -17,7 +17,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
-import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config } from '@shared/types'
+import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult } from '@shared/types'
 import type { Provider } from './types'
 
 /** Real AWS region ids — used to flag likely S3-compatible configs missing an endpoint. */
@@ -406,6 +406,68 @@ export class S3Provider implements Provider {
       return null
     }
     return { size: totalSize, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
+  }
+
+  async folderTree(path: string): Promise<FolderTreeResult> {
+    const prefix = path.replace(/^\/+/, '').replace(/\/$/, '') + '/'
+    const MAX = 25000
+    const flat: Array<{ relKey: string; size: number; modified: string | null }> = []
+    let ContinuationToken: string | undefined
+    let truncated = false
+
+    do {
+      const res = await this.client.send(
+        new ListObjectsV2Command({ Bucket: this.cfg.bucket, Prefix: prefix, ContinuationToken })
+      )
+      for (const obj of res.Contents ?? []) {
+        if (!obj.Key) continue
+        const relKey = obj.Key.slice(prefix.length)
+        if (!relKey || relKey.endsWith('/')) continue // skip folder markers
+        flat.push({ relKey, size: obj.Size ?? 0, modified: obj.LastModified?.toISOString() ?? null })
+        if (flat.length >= MAX) { truncated = true; break }
+      }
+      ContinuationToken = res.IsTruncated && !truncated ? res.NextContinuationToken : undefined
+    } while (ContinuationToken)
+
+    // Reconstruct tree from flat key list
+    const nodeMap = new Map<string, TreeNode>()
+    const root: TreeNode[] = []
+    let totalFiles = 0, totalFolders = 0, totalSize = 0
+
+    for (const { relKey, size, modified } of flat) {
+      const parts = relKey.split('/')
+      let currentList = root
+      let currentPath = ''
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i]
+        const isFile = i === parts.length - 1
+        currentPath = currentPath ? `${currentPath}/${part}` : part
+
+        if (isFile) {
+          currentList.push({ name: part, kind: 'file', size, modified, children: [] })
+          totalFiles++
+          totalSize += size
+        } else {
+          let dir = nodeMap.get(currentPath)
+          if (!dir) {
+            dir = { name: part, kind: 'directory', size: 0, modified: null, children: [] }
+            nodeMap.set(currentPath, dir)
+            currentList.push(dir)
+            totalFolders++
+          }
+          currentList = dir.children
+        }
+      }
+    }
+
+    function sortLevel(nodes: TreeNode[]): void {
+      nodes.sort((a, b) => a.kind !== b.kind ? (a.kind === 'directory' ? -1 : 1) : a.name.localeCompare(b.name))
+      for (const n of nodes) if (n.children.length) sortLevel(n.children)
+    }
+    sortLevel(root)
+
+    return { tree: root, totalFiles, totalFolders, totalSize, truncated }
   }
 
   private async headExists(key: string): Promise<boolean> {

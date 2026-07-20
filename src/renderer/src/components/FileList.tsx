@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry } from '@shared/types'
+import type { FileEntry, TreeNode, FolderTreeResult } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import type { PaneState } from '../store'
 import { useStore } from '../store'
@@ -47,6 +47,10 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
   const [infoFull, setInfoFull] = useState<FileEntry | null>(null)
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
   const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
+
+  const [treeEntry, setTreeEntry] = useState<FileEntry | null>(null)
+  const [treeResult, setTreeResult] = useState<FolderTreeResult | null>(null)
+  const [treeLoading, setTreeLoading] = useState(false)
   const [pathCopied, setPathCopied] = useState(false)
   const pathCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -359,6 +363,9 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
     items.push({ label: 'Delete', danger: true, onClick: () => void doDelete(entry) })
     items.push({ label: 'Copy Path', onClick: () => doCopyPath(entry) })
     items.push({ label: 'Properties', onClick: () => doGetInfo(entry) })
+    if (entry.kind === 'directory') {
+      items.push({ label: 'File Tree…', onClick: () => doViewTree(entry) })
+    }
     return items
   }
 
@@ -391,6 +398,17 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
         })
       }
     }
+  }
+
+  function doViewTree(entry: FileEntry): void {
+    if (!pane.connectionId) return
+    setTreeEntry(entry)
+    setTreeResult(null)
+    setTreeLoading(true)
+    void window.conduit.fs.folderTree(pane.connectionId, entry.path).then((result) => {
+      setTreeResult(result)
+      setTreeLoading(false)
+    }).catch(() => setTreeLoading(false))
   }
 
   function doOpenInNewPane(entry: FileEntry): void {
@@ -540,6 +558,74 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
           </div>
         )
       })()}
+
+      {treeEntry && (
+        <div className="modal-overlay" onMouseDown={() => { setTreeEntry(null); setTreeResult(null) }}>
+          <div className="tree-panel" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="tree-header">
+              <div className="tree-header-left">
+                <span className="tree-title">File Tree</span>
+                <span className="tree-folder-name">{treeEntry.name}</span>
+              </div>
+              <button className="iconbtn" onClick={() => { setTreeEntry(null); setTreeResult(null) }}>✕</button>
+            </div>
+
+            {treeLoading && (
+              <div className="tree-loading">
+                <span className="tree-loading-spinner" />
+                Building file tree… this may take a moment for large folders.
+              </div>
+            )}
+
+            {treeResult && (
+              <>
+                <div className="tree-summary">
+                  <span>{treeResult.totalFiles.toLocaleString()} file{treeResult.totalFiles !== 1 ? 's' : ''}</span>
+                  <span className="tree-summary-dot">·</span>
+                  <span>{treeResult.totalFolders.toLocaleString()} folder{treeResult.totalFolders !== 1 ? 's' : ''}</span>
+                  <span className="tree-summary-dot">·</span>
+                  <span>{formatBytes(treeResult.totalSize)}</span>
+                  {treeResult.truncated && (
+                    <span className="tree-truncated">⚠ Large folder — showing first 25,000 items</span>
+                  )}
+                </div>
+
+                <div className="tree-body">
+                  <div className="tree-root-name">{treeEntry.name}/</div>
+                  {flattenTree(treeResult.tree).map((line, i) => (
+                    <div key={i} className="tree-line">
+                      <span className="tree-prefix">{line.prefix}</span>
+                      <span className={`tree-name ${line.kind === 'directory' ? 'tree-dir' : ''}`}>
+                        {line.name}
+                      </span>
+                      {(line.size > 0 || line.modified) && (
+                        <span className="tree-meta">
+                          {line.kind === 'file' && line.size > 0 && formatBytes(line.size)}
+                          {line.kind === 'file' && line.size > 0 && line.modified && ' · '}
+                          {line.modified && formatDate(line.modified)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="tree-footer">
+                  <button
+                    className="btn ghost"
+                    onClick={() => {
+                      const text = buildTreeText(treeEntry.name, treeResult)
+                      void window.conduit.logs.exportText(text)
+                    }}
+                  >
+                    Export as .txt
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="file-head">
         <div className="sortable" onClick={() => toggleSort('name')}>
           Name{caret('name')}
@@ -691,6 +777,49 @@ function FileInfoRow({
       </span>
     </div>
   )
+}
+
+function flattenTree(
+  nodes: TreeNode[],
+  parentPrefix = ''
+): Array<{ prefix: string; name: string; kind: 'file' | 'directory'; size: number; modified: string | null }> {
+  const lines: Array<{ prefix: string; name: string; kind: 'file' | 'directory'; size: number; modified: string | null }> = []
+  nodes.forEach((node, i) => {
+    const isLast = i === nodes.length - 1
+    const connector = isLast ? '└── ' : '├── '
+    const childPrefix = parentPrefix + (isLast ? '    ' : '│   ')
+    lines.push({
+      prefix: parentPrefix + connector,
+      name: node.name + (node.kind === 'directory' ? '/' : ''),
+      kind: node.kind,
+      size: node.size,
+      modified: node.modified
+    })
+    if (node.children.length) lines.push(...flattenTree(node.children, childPrefix))
+  })
+  return lines
+}
+
+function buildTreeText(rootName: string, result: FolderTreeResult): string {
+  const lines: string[] = [`${rootName}/`]
+  for (const line of flattenTree(result.tree)) {
+    const meta: string[] = []
+    if (line.kind === 'file' && line.size > 0) {
+      // inline formatBytes since we can't call the renderer helper from here
+      const bytes = line.size
+      const units = ['B', 'KB', 'MB', 'GB', 'TB']
+      let u = 0, v = bytes
+      while (v >= 1024 && u < units.length - 1) { v /= 1024; u++ }
+      meta.push(`${u === 0 ? v : v.toFixed(1)} ${units[u]}`)
+    }
+    if (line.modified) meta.push(new Date(line.modified).toLocaleDateString())
+    const suffix = meta.length ? `  [${meta.join(' · ')}]` : ''
+    lines.push(`${line.prefix}${line.name}${suffix}`)
+  }
+  lines.push('')
+  lines.push(`${result.totalFiles.toLocaleString()} file${result.totalFiles !== 1 ? 's' : ''}, ${result.totalFolders.toLocaleString()} folder${result.totalFolders !== 1 ? 's' : ''}`)
+  if (result.truncated) lines.push('(truncated at 25,000 items)')
+  return lines.join('\n')
 }
 
 function buildWebUrl(conn: { type: string; config: unknown }, path: string): string | null {

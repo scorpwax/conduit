@@ -15,9 +15,7 @@ mac:
     - dmg
   category: public.app-category.utilities
   icon: build/icon.png
-  identity: "Developer ID Application: MICHAEL ERIC WAX (UMCA2LMNU5)"
-  notarize:
-    teamId: "UMCA2LMNU5"
+  identity: "MICHAEL ERIC WAX (UMCA2LMNU5)"
 win:
   target:
     - nsis
