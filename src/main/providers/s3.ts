@@ -231,12 +231,13 @@ export class S3Provider implements Provider {
       uploadBody = counter
     }
 
+    if (!size) throw new Error(`Cannot upload "${key}": file size is unknown or zero`)
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.cfg.bucket,
         Key: key,
         Body: uploadBody,
-        ContentLength: size > 0 ? size : undefined
+        ContentLength: size
       })
     )
   }

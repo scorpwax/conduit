@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.11.1] — 2026-07-20
+
+### Fixed
+- **S3/Wasabi upload error** — "Invalid value undefined for x-amz-decoded-content-length" when uploading a file whose size was zero or stale at enqueue time. The engine now always uses the size returned by `createReadStream` (which re-stats the file at transfer start) rather than the size captured during directory enumeration.
+
 ## [1.11.0] — 2026-07-20
 
 ### Added

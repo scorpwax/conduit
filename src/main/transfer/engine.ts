@@ -316,7 +316,10 @@ class TransferEngine extends EventEmitter {
       const dest = await getProvider(item.dest.connectionId)
 
       const { stream, size } = await source.createReadStream(item.source.path)
-      if (size && !item.bytesTotal) item.bytesTotal = size
+      // Prefer the size from createReadStream (re-stats the file) over the enqueue-time
+      // stat, which can be stale or zero if the file was briefly inaccessible. This
+      // prevents passing ContentLength: undefined to the S3 SDK.
+      if (size) item.bytesTotal = size
 
       // The progress callback ONLY updates counters — no emit, no downstream work.
       // The progressTimer reads these counters every 250 ms and batches the update.
