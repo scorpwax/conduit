@@ -565,7 +565,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
             <div className="tree-header">
               <div className="tree-header-left">
                 <span className="tree-title">File Tree</span>
-                <span className="tree-folder-name">{treeEntry.name}</span>
+                <span className="tree-folder-name">{treeEntry.path}</span>
               </div>
               <button className="iconbtn" onClick={() => { setTreeEntry(null); setTreeResult(null) }}>✕</button>
             </div>
