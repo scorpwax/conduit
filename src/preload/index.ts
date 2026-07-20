@@ -65,7 +65,9 @@ const api = {
     folderSize: (connectionId: string, path: string): Promise<number | null> =>
       ipcRenderer.invoke(IPC.fsFolderSize, { connectionId, path }),
     checksum: (connectionId: string, path: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path })
+      ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path }),
+    folderContents: (connectionId: string, path: string): Promise<{ files: number; folders: number } | null> =>
+      ipcRenderer.invoke(IPC.fsFolderContents, { connectionId, path })
   },
   transfer: {
     checkConflicts: (req: TransferRequest): Promise<string[]> =>

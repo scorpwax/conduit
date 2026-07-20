@@ -343,6 +343,25 @@ function registerIpc(): void {
     }
   )
 
+  ipcMain.handle(
+    IPC.fsFolderContents,
+    async (_e, args: { connectionId: string; path: string }): Promise<{ files: number; folders: number } | null> => {
+      try {
+        const provider = await getProvider(args.connectionId)
+        const result = await provider.list(args.path)
+        let files = 0
+        let folders = 0
+        for (const e of result.entries) {
+          if (e.kind === 'directory') folders++
+          else files++
+        }
+        return { files, folders }
+      } catch {
+        return null
+      }
+    }
+  )
+
   ipcMain.handle(IPC.connectionsRevealMount, async (_e, id: string) => {
     try {
       const all = await connectionStore.getAll()

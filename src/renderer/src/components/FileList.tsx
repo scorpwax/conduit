@@ -46,6 +46,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
   const [infoEntry, setInfoEntry] = useState<FileEntry | null>(null)
   const [infoFull, setInfoFull] = useState<FileEntry | null>(null)
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
+  const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
   const [pathCopied, setPathCopied] = useState(false)
   const pathCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -357,7 +358,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
     items.push({ label: 'Rename…', onClick: () => void doRename(entry) })
     items.push({ label: 'Delete', danger: true, onClick: () => void doDelete(entry) })
     items.push({ label: 'Copy Path', onClick: () => doCopyPath(entry) })
-    items.push({ label: 'Get Info', onClick: () => doGetInfo(entry) })
+    items.push({ label: 'Properties', onClick: () => doGetInfo(entry) })
     return items
   }
 
@@ -372,12 +373,15 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
     setInfoEntry(entry)
     setInfoFull(null)
     setInfoChecksum('loading')
+    setInfoContents('loading')
     if (!pane.connectionId) return
     void window.conduit.fs.stat(pane.connectionId, entry.path).then((full) => setInfoFull(full))
     if (entry.kind === 'file') {
       void window.conduit.fs.checksum(pane.connectionId, entry.path).then((c) => setInfoChecksum(c))
+      setInfoContents(null)
     } else {
       setInfoChecksum(null)
+      void window.conduit.fs.folderContents(pane.connectionId, entry.path).then((c) => setInfoContents(c))
     }
   }
 
@@ -459,27 +463,64 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
       {infoEntry && (() => {
         const conn = connections.find((c) => c.id === pane.connectionId) ?? null
         const webUrl = conn ? buildWebUrl(conn, infoEntry.path) : null
-        const closeInfo = () => { setInfoEntry(null); setInfoFull(null); setInfoChecksum('loading') }
+        const isDir = infoEntry.kind === 'directory'
+        const pathLen = infoEntry.path.length
+        const pathOverLimit = pathLen > 256
+        const closeInfo = () => {
+          setInfoEntry(null); setInfoFull(null); setInfoChecksum('loading'); setInfoContents('loading')
+        }
+        const contentsLabel = (() => {
+          if (!isDir) return null
+          if (infoContents === 'loading') return 'Loading…'
+          if (!infoContents) return 'Unavailable'
+          const parts: string[] = []
+          if (infoContents.folders > 0) parts.push(`${infoContents.folders} folder${infoContents.folders !== 1 ? 's' : ''}`)
+          if (infoContents.files > 0) parts.push(`${infoContents.files} file${infoContents.files !== 1 ? 's' : ''}`)
+          return parts.length > 0 ? parts.join(', ') : 'Empty'
+        })()
         return (
           <div className="modal-overlay" onMouseDown={closeInfo}>
             <div className="info-panel" onMouseDown={(e) => e.stopPropagation()}>
               <div className="info-header">
-                <span className="info-title">Get Info</span>
+                <span className="info-title">Properties</span>
                 <button className="iconbtn" onClick={closeInfo}>✕</button>
               </div>
               <div className="info-body">
                 <FileInfoRow label="Name" value={infoEntry.name} />
-                <FileInfoRow label="Type" value={fileType(infoEntry.name, infoEntry.kind)} />
-                <FileInfoRow label="Kind" value={infoEntry.kind === 'directory' ? 'Folder' : 'File'} />
-                <FileInfoRow label="Path" value={infoEntry.path} mono />
+                <FileInfoRow label="Kind" value={isDir ? 'Folder' : 'File'} />
+                {!isDir && <FileInfoRow label="Type" value={fileType(infoEntry.name, infoEntry.kind)} />}
+                <FileInfoRow
+                  label="Path"
+                  value={infoEntry.path}
+                  mono
+                  warning={pathOverLimit ? `Path is ${pathLen} characters — exceeds the 256-character Windows limit` : undefined}
+                  extra={`${pathLen} characters`}
+                />
                 {webUrl && <FileInfoRow label="URL" value={webUrl} mono />}
-                {infoEntry.kind === 'file' && (
-                  <FileInfoRow label="Size" value={formatBytes(infoFull?.size ?? infoEntry.size ?? 0)} />
-                )}
+                <FileInfoRow
+                  label="Size"
+                  value={
+                    isDir
+                      ? (folderSizes[infoEntry.path] === 'loading'
+                          ? 'Calculating…'
+                          : typeof folderSizes[infoEntry.path] === 'number'
+                            ? formatBytes(folderSizes[infoEntry.path] as number)
+                            : 'Click to calculate')
+                      : formatBytes(infoFull?.size ?? infoEntry.size ?? 0)
+                  }
+                  onClickOverride={
+                    isDir && typeof folderSizes[infoEntry.path] !== 'number' && folderSizes[infoEntry.path] !== 'loading'
+                      ? () => fetchFolderSize(infoEntry)
+                      : undefined
+                  }
+                />
                 {(infoFull?.modified ?? infoEntry.modified) && (
                   <FileInfoRow label="Modified" value={formatDate(infoFull?.modified ?? infoEntry.modified)} />
                 )}
-                {infoEntry.kind === 'file' && (
+                {isDir && contentsLabel !== null && (
+                  <FileInfoRow label="Contents" value={contentsLabel} />
+                )}
+                {!isDir && (
                   <FileInfoRow
                     label="Checksum"
                     value={infoChecksum === 'loading' ? 'Loading…' : (infoChecksum ?? 'Unavailable')}
@@ -588,11 +629,21 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
   )
 }
 
-function FileInfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }): JSX.Element {
+function FileInfoRow({
+  label, value, mono, warning, extra, onClickOverride
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  warning?: string
+  extra?: string
+  onClickOverride?: () => void
+}): JSX.Element {
   const [copied, setCopied] = React.useState(false)
-  const isFaded = value === 'Loading…' || value === 'Unavailable'
+  const isFaded = value === 'Loading…' || value === 'Unavailable' || value === 'Calculating…' || value === 'Click to calculate'
 
-  function handleCopy(): void {
+  function handleClick(): void {
+    if (onClickOverride) { onClickOverride(); return }
     if (isFaded) return
     void navigator.clipboard.writeText(value)
     setCopied(true)
@@ -600,13 +651,25 @@ function FileInfoRow({ label, value, mono }: { label: string; value: string; mon
   }
 
   return (
-    <div className="info-row" onClick={handleCopy} title={isFaded ? undefined : 'Click to copy'}>
+    <div
+      className="info-row"
+      onClick={handleClick}
+      title={onClickOverride ? 'Click to calculate' : isFaded ? undefined : 'Click to copy'}
+    >
       <span className="info-label">{label}</span>
-      <span
-        className="info-value"
-        style={mono ? { fontFamily: 'monospace', wordBreak: 'break-all' } : undefined}
-      >
-        {copied ? <span style={{ color: 'var(--success, #22c55e)' }}>Copied!</span> : value}
+      <span className="info-value-wrap">
+        <span
+          className="info-value"
+          style={mono ? { fontFamily: 'monospace', wordBreak: 'break-all' } : undefined}
+        >
+          {copied ? <span style={{ color: 'var(--success, #22c55e)' }}>Copied!</span> : value}
+        </span>
+        {extra && !copied && (
+          <span className="info-extra">{extra}</span>
+        )}
+        {warning && (
+          <span className="info-warning">⚠ {warning}</span>
+        )}
       </span>
     </div>
   )

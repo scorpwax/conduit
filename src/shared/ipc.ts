@@ -32,6 +32,7 @@ export const IPC = {
 
   fsFolderSize: 'fs:folderSize',
   fsChecksum: 'fs:checksum',
+  fsFolderContents: 'fs:folderContents',
 
   dialogPickFolder: 'dialog:pickFolder',
 

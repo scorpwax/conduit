@@ -12,6 +12,15 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.9.0] — 2026-07-19
+
+### Added
+- **Properties panel** — renamed from "Get Info"; now shows full details for both files and folders.
+- **Folder size & modified in Properties** — folders now display their size (click to calculate) and last-modified date alongside files.
+- **Folder contents count** — Properties on a folder shows how many files and subfolders are directly inside it (e.g. "3 folders, 12 files").
+- **Path character count** — the Path row now shows the character count inline. Paths exceeding 256 characters display an amber warning, surfacing the Windows path-length limit.
+- **Checksum shown for files only** — folder rows no longer show a meaningless checksum field.
+
 ## [1.8.9] — 2026-07-17
 
 ### Added
