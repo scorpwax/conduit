@@ -8,6 +8,9 @@ files:
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!{.eslintrc,.prettierrc,.gitignore}'
+extraResources:
+  - from: CHANGELOG.md
+    to: CHANGELOG.md
 asarUnpack:
   - resources/**
 mac:
@@ -16,6 +19,16 @@ mac:
   category: public.app-category.utilities
   icon: build/icon.png
   identity: "MICHAEL ERIC WAX (UMCA2LMNU5)"
+dmg:
+  contents:
+    - x: 130
+      y: 220
+      type: file
+      path: CHANGELOG.md
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
 win:
   target:
     - nsis
