@@ -77,6 +77,13 @@ async function createWindow(): Promise<void> {
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
 
+  // Intercept window close (red X and Cmd+Q both come through here after before-quit sets quitInProgress).
+  mainWindow.on('close', (e) => {
+    if (quitInProgress) return // already confirmed — let it close
+    e.preventDefault()
+    void promptQuit()
+  })
+
   logger.setWindow(mainWindow)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -532,26 +539,16 @@ app.on('window-all-closed', () => {
 })
 
 // Quit-confirmation: warn if there are live connections, with a "don't ask again" option.
-let quitConfirmed = false
-app.on('before-quit', (e) => {
-  if (quitConfirmed) {
-    log.info('app', 'Quitting — disconnecting all connections')
-    closeAllProviders()
-    void unmountAll()
-    return
-  }
+// Intercept on the window close event (handles both Cmd+Q and red-X on macOS/Windows).
+let quitInProgress = false
 
-  void (async () => {
-    const settings = await getSettings()
-    const activeIds = getActiveConnectionIds()
+async function promptQuit(): Promise<void> {
+  const settings = await getSettings()
+  const activeIds = getActiveConnectionIds()
 
-    if (activeIds.length === 0 || settings.skipQuitConfirm) {
-      quitConfirmed = true
-      app.quit()
-      return
-    }
-
-    const { response, checkboxChecked } = await dialog.showMessageBox({
+  if (activeIds.length > 0 && !settings.skipQuitConfirm) {
+    if (!mainWindow) return
+    const { response, checkboxChecked } = await dialog.showMessageBox(mainWindow, {
       type: 'warning',
       title: 'Quit Conduit',
       message: `You have ${activeIds.length} active connection${activeIds.length !== 1 ? 's' : ''}.`,
@@ -563,15 +560,19 @@ app.on('before-quit', (e) => {
       cancelId: 1
     })
 
-    if (response === 1) return // Cancel — do nothing
+    if (response === 1) return // user cancelled
+    if (checkboxChecked) await updateSettings({ skipQuitConfirm: true })
+  }
 
-    if (checkboxChecked) {
-      await updateSettings({ skipQuitConfirm: true })
-    }
+  quitInProgress = true
+  log.info('app', 'Quitting — disconnecting all connections')
+  closeAllProviders()
+  void unmountAll()
+  app.quit()
+}
 
-    quitConfirmed = true
-    app.quit()
-  })()
-
-  e.preventDefault()
+// before-quit fires on Cmd+Q before any windows close — mark confirmed so
+// the window 'close' handler below passes through.
+app.on('before-quit', () => {
+  quitInProgress = true
 })

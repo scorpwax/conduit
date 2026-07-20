@@ -51,17 +51,14 @@ export default function App(): JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Save UI state when the window is about to close.
+  // Save UI state whenever pane count or transfer panel open/closed changes.
+  // Reactive save is reliable; beforeunload is not (async IPC can't complete before renderer dies).
   useEffect(() => {
-    function onUnload(): void {
-      void window.conduit.app.saveUiState({
-        transferPanelOpen,
-        panes: useStore.getState().panes.map((p) => ({ connectionId: p.connectionId, path: p.path }))
-      })
-    }
-    window.addEventListener('beforeunload', onUnload)
-    return () => window.removeEventListener('beforeunload', onUnload)
-  }, [transferPanelOpen])
+    void window.conduit.app.saveUiState({
+      transferPanelOpen,
+      panes: panes.map((p) => ({ connectionId: p.connectionId, path: p.path }))
+    })
+  }, [panes.length, transferPanelOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fire a macOS notification when a transfer batch finishes.
   const prevAllFinishedRef = useRef(false)
