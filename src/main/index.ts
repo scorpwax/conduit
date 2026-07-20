@@ -300,31 +300,37 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC.fsFolderSize,
-    async (_e, args: { connectionId: string; path: string }): Promise<number | null> => {
+    async (_e, args: { connectionId: string; path: string }): Promise<{ size: number; latestModified: string | null } | null> => {
       try {
         const provider = await getProvider(args.connectionId)
+        // Remote providers that implement folderSize() (e.g. S3/Wasabi)
+        if (provider.folderSize) return await provider.folderSize(args.path)
+        // Local providers: use OS tools for speed
         if (!provider.getLocalRoot) return null
+        let size: number
         if (process.platform === 'darwin' || process.platform === 'linux') {
           const { execFile } = await import('child_process')
           const { promisify } = await import('util')
           const execFileP = promisify(execFile)
           const { stdout } = await execFileP('du', ['-sk', args.path])
           const kb = parseInt(stdout.trim().split(/\s/)[0], 10)
-          return isNaN(kb) ? null : kb * 1024
-        }
-        // Windows: pure-Node recursive walk.
-        const { promises: fsP } = await import('fs')
-        async function dirSize(dir: string): Promise<number> {
-          let total = 0
-          const entries = await fsP.readdir(dir, { withFileTypes: true })
-          for (const e of entries) {
-            const p = `${dir}\\${e.name}`
-            if (e.isDirectory()) total += await dirSize(p)
-            else if (e.isFile()) total += (await fsP.stat(p)).size
+          size = isNaN(kb) ? 0 : kb * 1024
+        } else {
+          // Windows: pure-Node recursive walk.
+          const { promises: fsP } = await import('fs')
+          async function dirSize(dir: string): Promise<number> {
+            let total = 0
+            const entries = await fsP.readdir(dir, { withFileTypes: true })
+            for (const e of entries) {
+              const p = `${dir}\\${e.name}`
+              if (e.isDirectory()) total += await dirSize(p)
+              else if (e.isFile()) total += (await fsP.stat(p)).size
+            }
+            return total
           }
-          return total
+          size = await dirSize(args.path)
         }
-        return await dirSize(args.path)
+        return { size, latestModified: null }
       } catch {
         return null
       }

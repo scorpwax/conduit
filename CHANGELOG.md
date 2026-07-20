@@ -12,6 +12,13 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.9.1] — 2026-07-19
+
+### Fixed
+- **Folder size in Properties** — S3/Wasabi folders now calculate total size via recursive `ListObjectsV2` instead of returning "Unavailable" (which only worked for local drives).
+- **Folder modified date in Properties** — S3/Wasabi folders now show the most recently modified object's date, since S3 has no native directory metadata.
+- `folderSize` IPC return type expanded to `{ size, latestModified }` so both values come back in one call.
+
 ## [1.9.0] — 2026-07-19
 
 ### Added

@@ -43,7 +43,7 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
   const [showFilter, setShowFilter] = useState(false)
   const [filter, setFilter] = useState('')
   const filterRef = useRef<HTMLInputElement>(null)
-  const [folderSizes, setFolderSizes] = useState<Record<string, number | 'loading' | null>>({})
+  const [folderSizes, setFolderSizes] = useState<Record<string, { size: number; latestModified: string | null } | 'loading' | null>>({})
 
   // Reset the filter + folder sizes whenever the pane navigates or switches connection.
   useEffect(() => {
@@ -147,7 +147,7 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
       .reduce((sum, e) => {
         if (e.kind === 'file') return sum + (e.size ?? 0)
         const fsz = folderSizes[e.path]
-        return sum + (typeof fsz === 'number' ? fsz : 0)
+        return sum + (fsz && typeof fsz === 'object' ? fsz.size : 0)
       }, 0)
   }, [pane.selection, pane.result, folderSizes])
 

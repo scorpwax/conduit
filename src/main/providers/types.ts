@@ -65,4 +65,10 @@ export interface Provider {
    * for providers that don't support checksums.
    */
   checksum?(path: string): Promise<string | null>
+
+  /**
+   * Return the total byte size of all objects under a folder path, plus the
+   * most-recent modification date among them. Null when not supported.
+   */
+  folderSize?(path: string): Promise<{ size: number; latestModified: string | null } | null>
 }

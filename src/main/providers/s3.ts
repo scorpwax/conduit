@@ -385,6 +385,29 @@ export class S3Provider implements Provider {
     }
   }
 
+  async folderSize(path: string): Promise<{ size: number; latestModified: string | null } | null> {
+    const prefix = path.replace(/^\/+/, '').replace(/\/$/, '') + '/'
+    let totalSize = 0
+    let latestMs = 0
+    let ContinuationToken: string | undefined
+    try {
+      do {
+        const res = await this.client.send(
+          new ListObjectsV2Command({ Bucket: this.cfg.bucket, Prefix: prefix, ContinuationToken })
+        )
+        for (const obj of res.Contents ?? []) {
+          totalSize += obj.Size ?? 0
+          const ms = obj.LastModified?.getTime() ?? 0
+          if (ms > latestMs) latestMs = ms
+        }
+        ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined
+      } while (ContinuationToken)
+    } catch {
+      return null
+    }
+    return { size: totalSize, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
+  }
+
   private async headExists(key: string): Promise<boolean> {
     try {
       await this.client.send(new HeadObjectCommand({ Bucket: this.cfg.bucket, Key: key }))

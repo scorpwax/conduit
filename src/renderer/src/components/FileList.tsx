@@ -11,8 +11,8 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 interface Props {
   pane: PaneState
   filter: string
-  folderSizes: Record<string, number | 'loading' | null>
-  setFolderSizes: React.Dispatch<React.SetStateAction<Record<string, number | 'loading' | null>>>
+  folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
+  setFolderSizes: React.Dispatch<React.SetStateAction<Record<string, { size: number; latestModified: string | null } | 'loading' | null>>>
 }
 
 type SortKey = 'name' | 'size' | 'type' | 'modified'
@@ -383,10 +383,11 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
       setInfoChecksum(null)
       void window.conduit.fs.folderContents(pane.connectionId, entry.path).then((c) => setInfoContents(c))
       // Auto-start size calculation if not already done
-      if (typeof folderSizes[entry.path] !== 'number' && folderSizes[entry.path] !== 'loading') {
+      const existingSize = folderSizes[entry.path]
+      if (existingSize !== 'loading' && !(existingSize && typeof existingSize === 'object')) {
         setFolderSizes((s) => ({ ...s, [entry.path]: 'loading' }))
-        void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((size) => {
-          setFolderSizes((s) => ({ ...s, [entry.path]: size }))
+        void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((result) => {
+          setFolderSizes((s) => ({ ...s, [entry.path]: result }))
         })
       }
     }
@@ -410,8 +411,8 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
   function fetchFolderSize(entry: FileEntry): void {
     if (!pane.connectionId || folderSizes[entry.path] !== undefined) return
     setFolderSizes((s) => ({ ...s, [entry.path]: 'loading' }))
-    void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((size) => {
-      setFolderSizes((s) => ({ ...s, [entry.path]: size }))
+    void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((result) => {
+      setFolderSizes((s) => ({ ...s, [entry.path]: result }))
     })
   }
 
@@ -506,19 +507,20 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
                 {webUrl && <FileInfoRow label="URL" value={webUrl} mono />}
                 <FileInfoRow
                   label="Size"
-                  value={
-                    isDir
-                      ? (folderSizes[infoEntry.path] === 'loading' || folderSizes[infoEntry.path] === undefined
-                          ? 'Calculating…'
-                          : typeof folderSizes[infoEntry.path] === 'number'
-                            ? formatBytes(folderSizes[infoEntry.path] as number)
-                            : 'Unavailable')
-                      : formatBytes(infoFull?.size ?? infoEntry.size ?? 0)
-                  }
+                  value={(() => {
+                    if (!isDir) return formatBytes(infoFull?.size ?? infoEntry.size ?? 0)
+                    const fsz = folderSizes[infoEntry.path]
+                    if (fsz === 'loading' || fsz === undefined) return 'Calculating…'
+                    if (fsz && typeof fsz === 'object') return formatBytes(fsz.size)
+                    return 'Unavailable'
+                  })()}
                 />
-                {(infoFull?.modified ?? infoEntry.modified) && (
-                  <FileInfoRow label="Modified" value={formatDate(infoFull?.modified ?? infoEntry.modified)} />
-                )}
+                {(() => {
+                  const fsz = folderSizes[infoEntry.path]
+                  const folderModified = (fsz && typeof fsz === 'object') ? fsz.latestModified : null
+                  const modDate = infoFull?.modified ?? infoEntry.modified ?? folderModified
+                  return modDate ? <FileInfoRow label="Modified" value={formatDate(modDate)} /> : null
+                })()}
                 {isDir && contentsLabel !== null && (
                   <FileInfoRow
                     label="Contents"
@@ -618,11 +620,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
                 title={isDir && !folderSizes[entry.path] ? 'Click to calculate size' : undefined}
               >
                 {isDir
-                  ? folderSizes[entry.path] === 'loading'
-                    ? '…'
-                    : typeof folderSizes[entry.path] === 'number'
-                      ? formatBytes(folderSizes[entry.path] as number)
-                      : <span style={{ color: 'var(--text-faint)', cursor: 'pointer' }} title="Click to calculate size">—</span>
+                  ? (() => {
+                      const fsz = folderSizes[entry.path]
+                      if (fsz === 'loading') return '…'
+                      if (fsz && typeof fsz === 'object') return formatBytes(fsz.size)
+                      return <span style={{ color: 'var(--text-faint)', cursor: 'pointer' }} title="Click to calculate size">—</span>
+                    })()
                   : formatBytes(entry.size)}
               </div>
               <div className="file-type">{fileType(entry.name, entry.kind)}</div>

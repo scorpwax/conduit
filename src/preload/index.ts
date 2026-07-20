@@ -62,7 +62,7 @@ const api = {
       ipcRenderer.invoke(IPC.fsRename, { connectionId, path, newName }),
     preview: (connectionId: string, path: string): Promise<void> =>
       ipcRenderer.invoke(IPC.fsPreview, { connectionId, path }),
-    folderSize: (connectionId: string, path: string): Promise<number | null> =>
+    folderSize: (connectionId: string, path: string): Promise<{ size: number; latestModified: string | null } | null> =>
       ipcRenderer.invoke(IPC.fsFolderSize, { connectionId, path }),
     checksum: (connectionId: string, path: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path }),
