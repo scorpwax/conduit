@@ -13,10 +13,11 @@ export default function App(): JSX.Element {
   const init = useStore((s) => s.init)
   const panes = useStore((s) => s.panes)
   const addPane = useStore((s) => s.addPane)
-const showHidden = useStore((s) => s.showHidden)
+  const showHidden = useStore((s) => s.showHidden)
   const toggleShowHidden = useStore((s) => s.toggleShowHidden)
   const fontScale = useStore((s) => s.fontScale)
   const adjustFontScale = useStore((s) => s.adjustFontScale)
+  const transfers = useStore((s) => s.transfers)
 
   const [modal, setModal] = useState<{
     existing: Connection | null
@@ -25,10 +26,59 @@ const showHidden = useStore((s) => s.showHidden)
   } | null>(null)
   const [logsOpen, setLogsOpen] = useState(false)
   const [version, setVersion] = useState('')
+  const [transferPanelOpen, setTransferPanelOpen] = useState(false)
 
   useEffect(() => {
     void window.conduit.app.getVersion().then(setVersion)
   }, [])
+
+  // Restore saved UI state on first load.
+  useEffect(() => {
+    void (async () => {
+      const state = await window.conduit.app.getUiState()
+      if (state) {
+        if (state.transferPanelOpen) setTransferPanelOpen(true)
+        if (state.panes && state.panes.length > 1) {
+          // Re-add extra panes (store starts with 2 by default, so this handles 3+)
+          const store = useStore.getState()
+          while (store.panes.length < state.panes.length) {
+            store.addPane()
+          }
+        }
+      }
+      void init()
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Save UI state when the window is about to close.
+  useEffect(() => {
+    function onUnload(): void {
+      void window.conduit.app.saveUiState({
+        transferPanelOpen,
+        panes: useStore.getState().panes.map((p) => ({ connectionId: p.connectionId, path: p.path }))
+      })
+    }
+    window.addEventListener('beforeunload', onUnload)
+    return () => window.removeEventListener('beforeunload', onUnload)
+  }, [transferPanelOpen])
+
+  // Fire a macOS notification when a transfer batch finishes.
+  const prevAllFinishedRef = useRef(false)
+  useEffect(() => {
+    const active = transfers.filter((t) => t.status === 'transferring' || t.status === 'queued')
+    const allFinished = transfers.length > 0 && active.length === 0
+    if (allFinished && !prevAllFinishedRef.current) {
+      const done = transfers.filter((t) => t.status === 'done').length
+      const failed = transfers.filter((t) => t.status === 'error').length
+      const body = [
+        done > 0 && `${done} completed`,
+        failed > 0 && `${failed} failed`
+      ].filter(Boolean).join(', ')
+      void window.conduit.app.notify({ title: 'Conduit — Transfers Complete', body: body || 'Done' })
+    }
+    prevAllFinishedRef.current = allFinished
+  }, [transfers])
 
   // Apply the file-list font scale globally.
   useEffect(() => {
@@ -53,16 +103,13 @@ const showHidden = useStore((s) => s.showHidden)
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [adjustFontScale])
+
   // Pane widths are keyed by pane id so reordering keeps each pane's width.
   const [grows, setGrows] = useState<Record<string, number>>({})
   const containerRef = useRef<HTMLDivElement>(null)
   const dragInfo = useRef<{ leftId: string; rightId: string; startX: number; startGrows: Record<string, number> } | null>(
     null
   )
-
-  useEffect(() => {
-    void init()
-  }, [init])
 
   // Ensure every pane has a width entry (new panes default to 1).
   useEffect(() => {
@@ -178,7 +225,7 @@ const showHidden = useStore((s) => s.showHidden)
         </div>
       </div>
 
-      <TransferPanel />
+      <TransferPanel open={transferPanelOpen} onOpenChange={setTransferPanelOpen} />
 
       <ConflictModal />
 

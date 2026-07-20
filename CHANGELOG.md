@@ -12,6 +12,14 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.10.0] — 2026-07-19
+
+### Added
+- **macOS notifications** — Electron `Notification` fires when a transfer batch finishes. Shows e.g. "12 completed, 1 failed" in the notification body.
+- **Transfer panel summary** — header now reads "✓ 12 completed · 1 failed" (failed count in amber) instead of the generic "Transfers Complete" when a batch finishes.
+- **App state persistence** — window size/position and transfer panel open/closed state are saved to `conduit-ui-state.json` on quit and restored on next launch. Number of panes is also restored. Active connections are NOT restored (all connections disconnect on quit as before).
+- **Quit confirmation for active connections** — if remote connections are live when quitting, a native dialog warns "You have N active connections. Quitting will disconnect all of them." Includes a "Don't ask again" checkbox that persists the preference.
+
 ## [1.9.2] — 2026-07-19
 
 ### Added

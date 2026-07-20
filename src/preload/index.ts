@@ -12,7 +12,8 @@ import type {
   LogEntry,
   LogLevel,
   LogCategory,
-  AppSettings
+  AppSettings,
+  UiState
 } from '../shared/types'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
@@ -111,7 +112,11 @@ const api = {
     set: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke(IPC.settingsSet, patch)
   },
   app: {
-    getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appGetVersion)
+    getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appGetVersion),
+    notify: (args: { title: string; body: string }): Promise<void> =>
+      ipcRenderer.invoke(IPC.appNotify, args),
+    getUiState: (): Promise<UiState | null> => ipcRenderer.invoke(IPC.appGetUiState),
+    saveUiState: (state: UiState): Promise<void> => ipcRenderer.invoke(IPC.appSaveUiState, state)
   },
   /** Resolve the absolute path of a File dropped from the OS (Finder/desktop). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),

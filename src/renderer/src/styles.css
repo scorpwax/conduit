@@ -677,6 +677,11 @@ select {
 	font-weight: 500;
 }
 
+.transfers-failed {
+	color: #f59e0b;
+	font-weight: 500;
+}
+
 .transfer-item.operation {
 	opacity: 0.8;
 	font-style: italic;

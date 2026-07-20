@@ -4,13 +4,17 @@ import { useStore } from '../store'
 import { formatBytes, formatSpeed } from '../lib/format'
 import { confirmDialog } from '../lib/dialog'
 
-export function TransferPanel(): JSX.Element {
+export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void }): JSX.Element {
   const transfers = useStore((s) => s.transfers)
   const setTransfers = useStore((s) => s.setTransfers)
   const clearFinished = useStore((s) => s.clearFinishedTransfers)
   const cancelTransfer = useStore((s) => s.cancelTransfer)
 
-  const [collapsed, setCollapsed] = useState(true)
+  const [collapsed, setCollapsed] = useState(() => !(open ?? false))
+
+  useEffect(() => {
+    if (open !== undefined) setCollapsed(!open)
+  }, [open])
   const [height, setHeight] = useState(190)
   const dragging = useRef(false)
 
@@ -173,7 +177,7 @@ export function TransferPanel(): JSX.Element {
       )}
       <div className="transfer-header">
         {/* Left toggle zone — clicking this collapses/expands the panel */}
-        <div className="transfer-header-toggle" onClick={() => setCollapsed((v) => !v)}>
+        <div className="transfer-header-toggle" onClick={() => { setCollapsed((v) => { onOpenChange?.(v); return !v }) }}>
           <span style={{ color: 'var(--text-faint)' }}>{collapsed ? '▸' : '▾'}</span>
           <span className="title">Transfers</span>
           <span className="count">
@@ -192,7 +196,9 @@ export function TransferPanel(): JSX.Element {
                   ].filter(Boolean).join(' · ')
                 })()
               : allFinished
-                ? <span className="transfers-complete">✓ Transfers Complete{failed.length > 0 ? ` · ${failed.length} failed` : ''}</span>
+                ? <span className="transfers-complete">
+                    ✓ {done.length} completed{failed.length > 0 ? <span className="transfers-failed"> · {failed.length} failed</span> : ''}
+                  </span>
                 : transfers.length === 0
                   ? 'No transfers'
                   : `${done.length} done${failed.length ? ` · ${failed.length} failed` : ''}`}

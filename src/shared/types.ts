@@ -218,4 +218,16 @@ export interface AppSettings {
   logRetentionDays: number
   /** Max simultaneous file transfers. Default 5. */
   transferConcurrency: number
+  /** Whether to skip the quit-with-active-connections confirmation. */
+  skipQuitConfirm?: boolean
+}
+
+/** UI layout state saved on quit and restored on next launch. */
+export interface UiState {
+  /** Window bounds (x, y may be undefined on first launch). */
+  windowBounds?: { x: number; y: number; width: number; height: number }
+  /** Whether the transfer panel is expanded. */
+  transferPanelOpen: boolean
+  /** Pane layout: connection + path only (no live result data). */
+  panes: Array<{ connectionId: string | null; path: string }>
 }

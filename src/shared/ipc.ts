@@ -50,6 +50,9 @@ export const IPC = {
   settingsSet: 'settings:set',
 
   appGetVersion: 'app:getVersion',
+  appNotify: 'app:notify',
+  appGetUiState: 'app:getUiState',
+  appSaveUiState: 'app:saveUiState',
 
   // main -> renderer push events
   evtTransferUpdate: 'evt:transfer:update',

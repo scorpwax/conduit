@@ -1,13 +1,13 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { IPC } from '@shared/ipc'
-import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings } from '@shared/types'
+import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState } from '@shared/types'
 import { logger, log } from './logger'
 import { getSettings, updateSettings } from './settings'
 import { connectionStore } from './store'
-import { getProvider, createProvider, invalidateProvider, closeAllProviders } from './providers'
+import { getProvider, createProvider, invalidateProvider, closeAllProviders, getActiveConnectionIds } from './providers'
 import { listDrives } from './drives'
 import { mountS3, unmountAll } from './rclone'
 import { transferEngine } from './transfer/engine'
@@ -49,10 +49,20 @@ transferEngine.on('added', (items) => {
   if (addedFlushTimer === null) addedFlushTimer = setTimeout(flushAdded, 500)
 })
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
+  // Restore window bounds from the last session if available.
+  let savedBounds: { x: number; y: number; width: number; height: number } | undefined
+  try {
+    const raw = await fs.readFile(join(app.getPath('userData'), 'conduit-ui-state.json'), 'utf-8')
+    const state = JSON.parse(raw) as { windowBounds?: typeof savedBounds }
+    if (state.windowBounds) savedBounds = state.windowBounds
+  } catch { /* no saved state yet */ }
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 780,
+    width: savedBounds?.width ?? 1200,
+    height: savedBounds?.height ?? 780,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     minWidth: 760,
     minHeight: 480,
     show: false,
@@ -464,6 +474,31 @@ function registerIpc(): void {
     if (patch.transferConcurrency !== undefined) transferEngine.setConcurrency(settings.transferConcurrency)
     return settings
   })
+
+  ipcMain.handle(IPC.appNotify, (_e, args: { title: string; body: string }) => {
+    if (Notification.isSupported()) {
+      new Notification({ title: args.title, body: args.body }).show()
+    }
+  })
+
+  const uiStatePath = (): string => join(app.getPath('userData'), 'conduit-ui-state.json')
+
+  ipcMain.handle(IPC.appGetUiState, async (): Promise<UiState | null> => {
+    try {
+      const raw = await fs.readFile(uiStatePath(), 'utf-8')
+      return JSON.parse(raw) as UiState
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle(IPC.appSaveUiState, async (_e, state: UiState) => {
+    // Merge in current window bounds so the renderer doesn't need to know them.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      state.windowBounds = mainWindow.getBounds()
+    }
+    await fs.writeFile(uiStatePath(), JSON.stringify(state, null, 2), 'utf-8')
+  })
 }
 
 app.whenReady().then(async () => {
@@ -479,7 +514,7 @@ app.whenReady().then(async () => {
   }
 
   registerIpc()
-  createWindow()
+  await createWindow()
 
   // Apply saved settings.
   const settings = await getSettings()
@@ -496,10 +531,47 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Cleanly tear down every live connection when quitting (unmounts SMB shares,
-// ends SSH/FTP sessions).
-app.on('before-quit', () => {
-  log.info('app', 'Quitting — disconnecting all connections')
-  closeAllProviders()
-  void unmountAll()
+// Quit-confirmation: warn if there are live connections, with a "don't ask again" option.
+let quitConfirmed = false
+app.on('before-quit', (e) => {
+  if (quitConfirmed) {
+    log.info('app', 'Quitting — disconnecting all connections')
+    closeAllProviders()
+    void unmountAll()
+    return
+  }
+
+  void (async () => {
+    const settings = await getSettings()
+    const activeIds = getActiveConnectionIds()
+
+    if (activeIds.length === 0 || settings.skipQuitConfirm) {
+      quitConfirmed = true
+      app.quit()
+      return
+    }
+
+    const { response, checkboxChecked } = await dialog.showMessageBox({
+      type: 'warning',
+      title: 'Quit Conduit',
+      message: `You have ${activeIds.length} active connection${activeIds.length !== 1 ? 's' : ''}.`,
+      detail: 'Quitting will disconnect all of them.',
+      checkboxLabel: "Don't ask again",
+      checkboxChecked: false,
+      buttons: ['Quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1
+    })
+
+    if (response === 1) return // Cancel — do nothing
+
+    if (checkboxChecked) {
+      await updateSettings({ skipQuitConfirm: true })
+    }
+
+    quitConfirmed = true
+    app.quit()
+  })()
+
+  e.preventDefault()
 })

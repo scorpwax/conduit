@@ -82,6 +82,11 @@ export function invalidateProvider(connectionId: string): void {
   cache.delete(connectionId)
 }
 
+/** Return the ids of all currently cached (live) non-local connections. */
+export function getActiveConnectionIds(): string[] {
+  return [...cache.keys()].filter((id) => id !== BUILTIN_LOCAL_ID)
+}
+
 /** Tear down every live provider (unmount SMB, end SSH/FTP sessions). */
 export function closeAllProviders(): void {
   for (const { provider } of cache.values()) closeProvider(provider)
