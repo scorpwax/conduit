@@ -27,10 +27,19 @@ export default function App(): JSX.Element {
   const [logsOpen, setLogsOpen] = useState(false)
   const [version, setVersion] = useState('')
   const [transferPanelOpen, setTransferPanelOpen] = useState(false)
+  const [downloadDir, setDownloadDir] = useState<string>('')
 
   useEffect(() => {
     void window.conduit.app.getVersion().then(setVersion)
+    void window.conduit.settings.get().then((s) => setDownloadDir(s.downloadDir ?? ''))
   }, [])
+
+  async function pickDownloadDir(): Promise<void> {
+    const dir = await window.conduit.dialog.pickFolder()
+    if (!dir) return
+    setDownloadDir(dir)
+    await window.conduit.settings.set({ downloadDir: dir })
+  }
 
   // Restore saved UI state on first load.
   useEffect(() => {
@@ -184,6 +193,13 @@ export default function App(): JSX.Element {
             A+
           </button>
         </div>
+        <button
+          className="btn ghost toolbtn"
+          title={downloadDir ? `Download folder: ${downloadDir}` : 'Set download folder'}
+          onClick={() => void pickDownloadDir()}
+        >
+          ↓ {downloadDir ? (downloadDir.split('/').pop() || downloadDir.split('\\').pop() || 'Downloads') : 'Set Downloads'}
+        </button>
         <button className="btn ghost toolbtn" title="Activity log" onClick={() => setLogsOpen(true)}>
           🗒 Logs
         </button>
