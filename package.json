@@ -1,6 +1,6 @@
 {
 	"name": "conduit",
-	"version": "1.13.0",
+	"version": "1.14.0",
 	"description": "Conduit — a dual-pane file transfer app for local, external, and cloud storage.",
 	"main": "./out/main/index.js",
 	"author": "Mike Wax",

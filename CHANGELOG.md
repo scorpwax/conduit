@@ -12,6 +12,12 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.14.0] — 2026-07-21
+
+### Changed
+- **Download folder button moved to titlebar** — the download-folder selector is now a button in the top nav bar (↓ FolderName / ↓ Set Downloads) so it's always visible, instead of being buried in the Activity Log footer.
+- **Titlebar styling tweaks** — Download folder and Add Pane buttons have a distinct dark background; font control buttons use square corners for a tighter look; icon button font size increased slightly.
+
 ## [1.13.0] — 2026-07-21
 
 ### Added

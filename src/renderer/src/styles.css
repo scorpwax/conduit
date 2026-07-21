@@ -352,7 +352,7 @@ select {
 	text-align: center;
 	color: var(--text-faint);
 	cursor: pointer;
-	font-size: 10px;
+	font-size: 12px;
 	user-select: none;
 	transition: transform 0.1s;
 }
@@ -377,6 +377,7 @@ select {
 	height: 28px;
 	font-size: 12px;
 	font-weight: 600;
+	border-radius: 0;
 }
 
 .ctx-item.disabled {
@@ -521,6 +522,11 @@ select {
 .btn.ghost:hover {
 	background: var(--bg-elev-2);
 	color: var(--text);
+}
+
+.download-folder,
+.add-pane {
+	background-color: black !important;
 }
 
 .btn.danger {
