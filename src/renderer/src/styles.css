@@ -686,6 +686,18 @@ select {
 	color: var(--text-dim);
 }
 
+.transfers-complete {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.transfers-route {
+	font-size: 11px;
+	color: var(--text-faint);
+	font-weight: 400;
+}
+
 .transfer-offline-banner {
 	display: flex;
 	align-items: center;

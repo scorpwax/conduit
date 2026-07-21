@@ -6,6 +6,7 @@ import { confirmDialog } from '../lib/dialog'
 
 export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void }): JSX.Element {
 	const transfers = useStore((s) => s.transfers)
+	const connections = useStore((s) => s.connections)
 	const setTransfers = useStore((s) => s.setTransfers)
 	const clearFinished = useStore((s) => s.clearFinishedTransfers)
 	const cancelTransfer = useStore((s) => s.cancelTransfer)
@@ -86,7 +87,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		active, done, failed, canceled, allFinished, allCanceled,
 		totalBytes, doneBytes, aggSpeed,
 		earliestStart, activeFiles,
-		sorted, hiddenCount
+		sorted, hiddenCount, routes
 	} = useMemo(() => {
 		const MAX_FINISHED = 100
 		const active = transfers.filter((t) => t.status === 'transferring' || t.status === 'queued')
@@ -127,7 +128,21 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		})
 		const sorted = [...sortedActive, ...recentFinished]
 
-		return { active, done, failed, canceled, allFinished, allCanceled, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount }
+		// Build unique "Source → Dest" route labels from finished file transfers.
+		const connName = (id: string): string => {
+			if (!id || id === 'local') return 'This Computer'
+			return connections.find((c) => c.id === id)?.name ?? 'This Computer'
+		}
+		const routeSet = new Set<string>()
+		for (const t of transfers) {
+			if (t.kind !== 'file') continue
+			const src = connName(t.source.connectionId)
+			const dst = connName(t.dest.connectionId)
+			routeSet.add(`${src} → ${dst}`)
+		}
+		const routes = [...routeSet]
+
+		return { active, done, failed, canceled, allFinished, allCanceled, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount, routes }
 	}, [transfers])
 
 	// Freeze elapsed when complete; reset byte samples when transfers restart.
@@ -213,6 +228,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 								: allFinished
 								? <span className="transfers-complete">
 									✓ Transfers Complete · {done.length} completed{failed.length > 0 ? <span className="transfers-failed"> · {failed.length} failed</span> : ''}
+									{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
 								</span>
 								: transfers.length === 0
 									? 'No Transfers'
