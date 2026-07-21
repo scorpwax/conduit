@@ -11,6 +11,17 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	const cancelTransfer = useStore((s) => s.cancelTransfer)
 
 	const [collapsed, setCollapsed] = useState(() => !(open ?? false))
+	const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
+	useEffect(() => {
+		const goOffline = (): void => setIsOffline(true)
+		const goOnline = (): void => setIsOffline(false)
+		window.addEventListener('offline', goOffline)
+		window.addEventListener('online', goOnline)
+		return () => {
+			window.removeEventListener('offline', goOffline)
+			window.removeEventListener('online', goOnline)
+		}
+	}, [])
 
 	useEffect(() => {
 		if (open !== undefined) setCollapsed(!open)
@@ -72,7 +83,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	// All O(n) work is memoized — only reruns when the transfers array reference changes
 	// (i.e. when IPC delivers an update), not on every 250ms timer tick.
 	const {
-		active, done, failed, allFinished,
+		active, done, failed, canceled, allFinished, allCanceled,
 		totalBytes, doneBytes, aggSpeed,
 		earliestStart, activeFiles,
 		sorted, hiddenCount
@@ -81,7 +92,9 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		const active = transfers.filter((t) => t.status === 'transferring' || t.status === 'queued')
 		const done = transfers.filter((t) => t.status === 'done')
 		const failed = transfers.filter((t) => t.status === 'error')
+		const canceled = transfers.filter((t) => t.status === 'canceled')
 		const allFinished = transfers.length > 0 && active.length === 0
+		const allCanceled = allFinished && done.length === 0 && failed.length === 0 && canceled.length > 0
 
 		const counted = transfers.filter(
 			(t) => t.status !== 'canceled' && t.status !== 'error' && t.kind !== 'operation'
@@ -114,7 +127,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		})
 		const sorted = [...sortedActive, ...recentFinished]
 
-		return { active, done, failed, allFinished, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount }
+		return { active, done, failed, canceled, allFinished, allCanceled, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount }
 	}, [transfers])
 
 	// Freeze elapsed when complete; reset byte samples when transfers restart.
@@ -195,13 +208,15 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 									aggSpeed ? formatSpeed(aggSpeed) : ''
 								].filter(Boolean).join(' · ')
 							})()
-							: allFinished
+							: allCanceled
+								? <span className="transfers-cancelled">✕ Transfers Cancelled</span>
+								: allFinished
 								? <span className="transfers-complete">
-									✓ Tranfers Complete • {done.length} completed{failed.length > 0 ? <span className="transfers-failed"> • {failed.length} failed</span> : ''}
+									✓ Transfers Complete · {done.length} completed{failed.length > 0 ? <span className="transfers-failed"> · {failed.length} failed</span> : ''}
 								</span>
 								: transfers.length === 0
 									? 'No Transfers'
-									: `${done.length} done${failed.length ? ` · ${failed.length} failed` : ''}`}
+									: `${done.length} done${failed.length ? ` · ${failed.length} failed` : ''}${canceled.length ? ` · ${canceled.length} cancelled` : ''}`}
 					</span>
 				</div>
 				{/* Right action buttons — isolated from the toggle zone */}
@@ -257,6 +272,13 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 								: ''}
 						</span>
 					</div>
+				</div>
+			)}
+
+			{!collapsed && isOffline && active.length > 0 && (
+				<div className="transfer-offline-banner">
+					<span className="transfer-offline-icon">⚠</span>
+					<span>Connection lost — transfers paused and will resume when you're reconnected.</span>
 				</div>
 			)}
 

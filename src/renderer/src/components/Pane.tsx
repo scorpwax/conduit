@@ -52,6 +52,22 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
     setFolderSizes({})
   }, [pane.path, pane.connectionId])
 
+  const fetchFolderSize = useCallback((path: string): void => {
+    if (!pane.connectionId) return
+    setFolderSizes((s) => {
+      if (s[path] !== undefined) return s
+      return { ...s, [path]: 'loading' }
+    })
+    void window.conduit.fs.folderSize(pane.connectionId, path).then((result) => {
+      setFolderSizes((s) => ({ ...s, [path]: result }))
+    })
+  }, [pane.connectionId])
+
+  const fetchAllFolderSizes = useCallback((): void => {
+    const dirs = pane.result?.entries.filter((e) => e.kind === 'directory') ?? []
+    for (const dir of dirs) fetchFolderSize(dir.path)
+  }, [pane.result, fetchFolderSize])
+
   const connection: Connection | null = useMemo(() => {
     if (!pane.connectionId) return null
     if (pane.connectionId === BUILTIN_LOCAL_ID) {
@@ -329,7 +345,7 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
       </div>
 
       {connection ? (
-        <FileList pane={pane} filter={filter} folderSizes={folderSizes} setFolderSizes={setFolderSizes} />
+        <FileList pane={pane} filter={filter} folderSizes={folderSizes} setFolderSizes={setFolderSizes} fetchFolderSize={fetchFolderSize} />
       ) : (
         <div className="pane-empty">
           <div style={{ fontSize: 40 }}>🔌</div>
@@ -347,9 +363,18 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
           {selCount > 0 && ` · ${selCount} selected`}
           {selCount > 0 && selectedBytes !== null && ` · ${formatBytes(selectedBytes)}`}
         </span>
-        {Object.values(folderSizes).some((v) => v === 'loading') && (
-          <span className="status-calculating">Calculating size…</span>
-        )}
+        {Object.values(folderSizes).some((v) => v === 'loading')
+          ? <span className="status-calculating">Calculating size…</span>
+          : (() => {
+              const dirs = pane.result?.entries.filter((e) => e.kind === 'directory') ?? []
+              const hasUncalculated = dirs.some((d) => folderSizes[d.path] === undefined)
+              return hasUncalculated && connection ? (
+                <button className="status-calc-all" title="Calculate size of all folders" onClick={fetchAllFolderSizes}>
+                  Calculate all sizes
+                </button>
+              ) : null
+            })()
+        }
         <span>{connection ? typeLabel(connection) : ''}</span>
       </div>
 

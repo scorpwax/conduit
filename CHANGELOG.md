@@ -12,6 +12,16 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.12.0] — 2026-07-21
+
+### Added
+- **Connection-lost banner** — when wifi or network drops mid-transfer, an amber banner appears in the transfer panel: "Connection lost — transfers paused and will resume when you're reconnected." Dismisses automatically when connectivity is restored.
+- **Calculate all sizes button** — a "Calculate all sizes" button appears centered in each pane's status bar when there are folders whose sizes haven't been calculated yet. One click queues all of them at once instead of having to click folder-by-folder.
+
+### Fixed
+- **Cancel All is now instant** — the transfer engine now stores a reference to the active read stream for each in-flight transfer and destroys it immediately when cancel is called, instead of waiting for the next progress callback (which could be stalled).
+- **"Transfers Cancelled" summary** — after cancelling all transfers, the panel now shows "✕ Transfers Cancelled" instead of "✓ Transfers Complete".
+
 ## [1.11.1] — 2026-07-20
 
 ### Fixed

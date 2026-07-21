@@ -13,6 +13,7 @@ interface Props {
   filter: string
   folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
   setFolderSizes: React.Dispatch<React.SetStateAction<Record<string, { size: number; latestModified: string | null } | 'loading' | null>>>
+  fetchFolderSize: (path: string) => void
 }
 
 type SortKey = 'name' | 'size' | 'type' | 'modified'
@@ -23,7 +24,7 @@ interface Row {
   depth: number
 }
 
-export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): JSX.Element {
+export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolderSize }: Props): JSX.Element {
   const navigate = useStore((s) => s.navigate)
   const setSelection = useStore((s) => s.setSelection)
   const panes = useStore((s) => s.panes)
@@ -69,20 +70,9 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
       if (!pane.connectionId || dirs.length === 0) return
       const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
       if (connType !== 'local' && connType !== 'smb') return
-      setFolderSizes((prev) => {
-        const next = { ...prev }
-        dirs.forEach((d) => { if (!(d.path in next)) next[d.path] = 'loading' })
-        return next
-      })
-      dirs.forEach((d) => {
-        if (folderSizes[d.path] !== undefined) return
-        void window.conduit.fs.folderSize(pane.connectionId!, d.path).then((size) => {
-          setFolderSizes((s) => ({ ...s, [d.path]: size }))
-        })
-      })
+      dirs.forEach((d) => fetchFolderSize(d.path))
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pane.connectionId, connections]
+    [pane.connectionId, connections, fetchFolderSize]
   )
 
   useEffect(() => {
@@ -390,13 +380,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
       setInfoChecksum(null)
       void window.conduit.fs.folderContents(pane.connectionId, entry.path).then((c) => setInfoContents(c))
       // Auto-start size calculation if not already done
-      const existingSize = folderSizes[entry.path]
-      if (existingSize !== 'loading' && !(existingSize && typeof existingSize === 'object')) {
-        setFolderSizes((s) => ({ ...s, [entry.path]: 'loading' }))
-        void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((result) => {
-          setFolderSizes((s) => ({ ...s, [entry.path]: result }))
-        })
-      }
+      fetchFolderSize(entry.path)
     }
   }
 
@@ -426,13 +410,6 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
     }
   }
 
-  function fetchFolderSize(entry: FileEntry): void {
-    if (!pane.connectionId || folderSizes[entry.path] !== undefined) return
-    setFolderSizes((s) => ({ ...s, [entry.path]: 'loading' }))
-    void window.conduit.fs.folderSize(pane.connectionId, entry.path).then((result) => {
-      setFolderSizes((s) => ({ ...s, [entry.path]: result }))
-    })
-  }
 
   if (pane.error) {
     return (
@@ -702,7 +679,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes }: Props): 
               </div>
               <div
                 className="file-size"
-                onClick={isDir ? (e) => { e.stopPropagation(); fetchFolderSize(entry) } : undefined}
+                onClick={isDir ? (e) => { e.stopPropagation(); fetchFolderSize(entry.path) } : undefined}
                 title={isDir && !folderSizes[entry.path] ? 'Click to calculate size' : undefined}
               >
                 {isDir

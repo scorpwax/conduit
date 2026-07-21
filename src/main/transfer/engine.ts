@@ -28,6 +28,7 @@ class TransferEngine extends EventEmitter {
   private queue: TransferItem[] = []
   private byId = new Map<string, TransferItem>()
   private canceled = new Set<string>()
+  private activeStreams = new Map<string, import('stream').Readable>()
   private running = 0
   private concurrency = 5
   private seq = 0
@@ -218,6 +219,10 @@ class TransferEngine extends EventEmitter {
 
   cancel(id: string): void {
     this.canceled.add(id)
+    // Immediately destroy any in-flight stream so the transfer stops without
+    // waiting for the next onProgress callback (which may never fire if stalled).
+    this.activeStreams.get(id)?.destroy(new Error('canceled'))
+    this.activeStreams.delete(id)
     const item = this.byId.get(id)
     if (item && (item.status === 'queued' || item.status === 'transferring')) {
       item.status = 'canceled'
@@ -320,6 +325,7 @@ class TransferEngine extends EventEmitter {
       // stat, which can be stale or zero if the file was briefly inaccessible. This
       // prevents passing ContentLength: undefined to the S3 SDK.
       if (size) item.bytesTotal = size
+      this.activeStreams.set(item.id, stream)
 
       // The progress callback ONLY updates counters — no emit, no downstream work.
       // The progressTimer reads these counters every 250 ms and batches the update.
@@ -373,6 +379,7 @@ class TransferEngine extends EventEmitter {
         log.error('transfer', `Failed "${item.name}": ${item.error}`)
       }
     } finally {
+      this.activeStreams.delete(item.id)
       item.finishedAt = Date.now()
       // Final emit so done/error/canceled status reaches the renderer immediately.
       this.emit('update', [item])
