@@ -220,6 +220,8 @@ export interface AppSettings {
   transferConcurrency: number
   /** Whether to skip the quit-with-active-connections confirmation. */
   skipQuitConfirm?: boolean
+  /** Default local folder for "Download" context menu action. */
+  downloadDir?: string
 }
 
 /** A node in a recursive folder tree. */

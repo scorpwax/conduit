@@ -319,6 +319,18 @@ function registerIpc(): void {
   ipcMain.handle(IPC.transferCancel, (_e, id: string) => transferEngine.cancel(id))
   ipcMain.handle(IPC.transferCancelAll, () => transferEngine.cancelAll())
   ipcMain.handle(IPC.transferClearFinished, () => transferEngine.clearFinished())
+  ipcMain.handle(IPC.transferRetry, (_e, id: string) => transferEngine.retry(id))
+
+  // Drag local files out to the OS (Finder, Desktop, etc.).
+  // Must use ipcMain.on (not handle) so startDrag fires synchronously during the drag event.
+  ipcMain.on(IPC.fsStartDrag, (event, paths: string[]) => {
+    if (!paths.length) return
+    const icon = nativeImage.createFromPath(join(app.getAppPath(), 'build', 'icon.png')).resize({ width: 32, height: 32 })
+    // startDrag only accepts a single file in the current Electron typing.
+    // For multi-file drag, use the first path — the user can drag individual files
+    // or use Download/transfer for bulk operations.
+    event.sender.startDrag({ file: paths[0], icon })
+  })
 
   ipcMain.handle(IPC.dialogPickFolder, async () => {
     const res = await dialog.showOpenDialog(mainWindow!, {

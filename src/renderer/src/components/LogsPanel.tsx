@@ -38,6 +38,7 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
   const [autoScroll, setAutoScroll] = useState(true)
   const [retention, setRetention] = useState<number>(180)
   const [concurrency, setConcurrency] = useState<number>(5)
+  const [downloadDir, setDownloadDir] = useState<string>('')
   const [copied, setCopied] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -47,6 +48,7 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
     void window.conduit.settings.get().then((s: AppSettings) => {
       setRetention(s.logRetentionDays)
       setConcurrency(s.transferConcurrency ?? 5)
+      setDownloadDir(s.downloadDir ?? '')
     })
     const off = window.conduit.logs.onEntries((batch) => {
       setEntries((prev) => {
@@ -88,6 +90,13 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
   async function changeConcurrency(n: number): Promise<void> {
     setConcurrency(n)
     await window.conduit.settings.set({ transferConcurrency: n })
+  }
+
+  async function changeDownloadDir(): Promise<void> {
+    const dir = await window.conduit.dialog.pickFolder()
+    if (!dir) return
+    setDownloadDir(dir)
+    await window.conduit.settings.set({ downloadDir: dir })
   }
 
   async function clearLog(): Promise<void> {
@@ -183,6 +192,12 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
               ))}
             </select>
           </label>
+          <div className="logs-download-dir">
+            <span>Download folder:</span>
+            <button className="btn" onClick={() => void changeDownloadDir()}>
+              {downloadDir ? downloadDir.split('/').pop() || downloadDir : 'Not set'}
+            </button>
+          </div>
           <label className="logs-auto">
             <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} />
             Auto-scroll

@@ -12,6 +12,13 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.13.0] — 2026-07-21
+
+### Added
+- **Drag files out to Finder / Desktop** — files in a local or SMB pane can now be dragged out of Conduit onto the Desktop, Finder windows, or other apps. Uses Electron's native `startDrag` API so macOS receives a real file rather than a text clipping. Remote panes (S3, SFTP, etc.) still use cross-pane drag only.
+- **Download context menu item** — right-click any file or folder → "Download…" to transfer it to a user-defined local folder. The first time, a folder picker opens to set the default download location; subsequent downloads go there automatically. The download folder can also be changed any time in the Activity Log settings footer.
+- **Retry button for failed transfers** — failed transfer rows now show a ↺ button that re-queues the same transfer immediately without having to drag the file again.
+
 ## [1.12.0] — 2026-07-21
 
 ### Added

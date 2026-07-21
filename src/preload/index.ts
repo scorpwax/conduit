@@ -71,7 +71,9 @@ const api = {
     folderContents: (connectionId: string, path: string): Promise<{ files: number; folders: number } | null> =>
       ipcRenderer.invoke(IPC.fsFolderContents, { connectionId, path }),
     folderTree: (connectionId: string, path: string): Promise<FolderTreeResult> =>
-      ipcRenderer.invoke(IPC.fsFolderTree, { connectionId, path })
+      ipcRenderer.invoke(IPC.fsFolderTree, { connectionId, path }),
+    startDrag: (paths: string[]): void =>
+      ipcRenderer.send(IPC.fsStartDrag, paths)
   },
   transfer: {
     checkConflicts: (req: TransferRequest): Promise<string[]> =>
@@ -81,6 +83,7 @@ const api = {
     getAll: (): Promise<TransferItem[]> => ipcRenderer.invoke(IPC.transferGetAll),
     cancel: (id: string): Promise<void> => ipcRenderer.invoke(IPC.transferCancel, id),
     cancelAll: (): Promise<void> => ipcRenderer.invoke(IPC.transferCancelAll),
+    retry: (id: string): Promise<void> => ipcRenderer.invoke(IPC.transferRetry, id),
     clearFinished: (): Promise<void> => ipcRenderer.invoke(IPC.transferClearFinished),
     onUpdate: (cb: (items: TransferItem[]) => void): (() => void) => {
       const listener = (_e: unknown, items: TransferItem[]): void => cb(items)

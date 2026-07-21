@@ -238,6 +238,22 @@ class TransferEngine extends EventEmitter {
     }
   }
 
+  /** Re-enqueue a failed or canceled item as a fresh transfer. */
+  retry(id: string): void {
+    const item = this.byId.get(id)
+    if (!item || item.kind !== 'file') return
+    if (item.status !== 'error' && item.status !== 'canceled') return
+    void this.enqueue({
+      sourceConnectionId: item.source.connectionId,
+      destConnectionId: item.dest.connectionId,
+      sourcePaths: [item.source.path],
+      destDir: item.dest.path.includes('/') || item.dest.path.includes('\\')
+        ? item.dest.path.substring(0, item.dest.path.lastIndexOf(item.dest.path.includes('/') ? '/' : '\\'))
+        : '',
+      conflictPolicy: 'replace'
+    })
+  }
+
   /** Remove finished/errored/canceled items from the visible queue. */
   clearFinished(): void {
     this.queue = this.queue.filter(

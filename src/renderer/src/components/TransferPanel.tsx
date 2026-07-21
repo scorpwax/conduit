@@ -331,12 +331,14 @@ function MemoRow({ item, id, cancelTransfer, waitElapsed }: {
 	waitElapsed: number | null
 }): JSX.Element {
 	const onCancel = useCallback(() => cancelTransfer(id), [cancelTransfer, id])
-	return <TransferRow item={item} onCancel={onCancel} waitElapsed={waitElapsed} />
+	const onRetry = useCallback(() => void window.conduit.transfer.retry(id), [id])
+	return <TransferRow item={item} onCancel={onCancel} onRetry={onRetry} waitElapsed={waitElapsed} />
 }
 
-const TransferRow = memo(function TransferRow({ item, onCancel, waitElapsed }: {
+const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitElapsed }: {
 	item: TransferItem
 	onCancel: () => void
+	onRetry: () => void
 	waitElapsed: number | null
 }): JSX.Element {
 	const pct = item.bytesTotal > 0 ? Math.round((item.bytesDone / item.bytesTotal) * 100) : item.status === 'done' ? 100 : 0
@@ -375,6 +377,9 @@ const TransferRow = memo(function TransferRow({ item, onCancel, waitElapsed }: {
 								: `${pct}%`}
 					</span>
 				</>
+			)}
+			{item.status === 'error' && !isOp && (
+				<button className="iconbtn retry-btn" title="Retry" onClick={onRetry}>↺</button>
 			)}
 			<button
 				className="iconbtn"

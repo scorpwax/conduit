@@ -1510,6 +1510,28 @@ select {
 	font-size: 12px;
 }
 
+.logs-download-dir {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--text-dim);
+	font-size: 12px;
+	flex-shrink: 0;
+}
+
+.logs-download-dir .btn {
+	max-width: 160px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+}
+
+.retry-btn {
+	color: var(--accent) !important;
+	opacity: 1 !important;
+}
+
 .logs-count {
 	color: var(--text-faint);
 	font-size: 12px;

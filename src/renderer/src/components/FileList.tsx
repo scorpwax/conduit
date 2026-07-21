@@ -248,6 +248,13 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     e.dataTransfer.effectAllowed = 'copy'
     e.dataTransfer.setData('text/plain', names.join(', '))
 
+    // For local/SMB panes, trigger native OS file drag so files can be dropped
+    // onto Finder, Desktop, or other apps without creating a text clipping.
+    const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
+    if (connType === 'local' || connType === 'smb') {
+      window.conduit.fs.startDrag(paths)
+    }
+
     if (paths.length > 1) {
       const badge = document.createElement('div')
       badge.textContent = `${paths.length} items`
@@ -328,6 +335,20 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     )
   }
 
+  async function doDownload(entry: FileEntry): Promise<void> {
+    if (!pane.connectionId) return
+    const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
+    let settings = await window.conduit.settings.get()
+    let dir = settings.downloadDir
+    if (!dir) {
+      dir = await window.conduit.dialog.pickFolder() ?? undefined
+      if (!dir) return
+      await window.conduit.settings.set({ downloadDir: dir })
+      settings = { ...settings, downloadDir: dir }
+    }
+    await requestTransfer(pane.connectionId, BUILTIN_LOCAL_ID, targets.map((t) => t.path), dir)
+  }
+
   function menuItems(entry: FileEntry): ContextMenuItem[] {
     const items: ContextMenuItem[] = []
     if (entry.kind === 'file' && window.conduit.platform === 'darwin') {
@@ -349,6 +370,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       onClick: () => setSelection(pane.id, [])
     })
     items.push({ label: 'Add to Favorites', onClick: () => doAddFavorite(entry) })
+    items.push({ label: 'Download…', onClick: () => void doDownload(entry) })
     items.push({ label: 'Rename…', onClick: () => void doRename(entry) })
     items.push({ label: 'Delete', danger: true, onClick: () => void doDelete(entry) })
     items.push({ label: 'Copy Path', onClick: () => doCopyPath(entry) })
