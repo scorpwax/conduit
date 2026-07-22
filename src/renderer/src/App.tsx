@@ -69,6 +69,15 @@ export default function App(): JSX.Element {
 		})
 	}, [panes.length, transferPanelOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
+	// Auto-open the Transfer Panel whenever new items appear in the queue.
+	const prevTransferCountRef = useRef(0)
+	useEffect(() => {
+		if (transfers.length > prevTransferCountRef.current) {
+			setTransferPanelOpen(true)
+		}
+		prevTransferCountRef.current = transfers.length
+	}, [transfers.length])
+
 	// Fire a macOS notification when a transfer batch finishes.
 	const prevAllFinishedRef = useRef(false)
 	useEffect(() => {

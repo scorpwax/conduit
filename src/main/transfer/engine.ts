@@ -281,7 +281,7 @@ class TransferEngine extends EventEmitter {
    *                  non-failed operation with the same key is already in the queue,
    *                  this call is skipped to prevent duplicate entries.
    */
-  async trackOperation(label: string, action: () => Promise<void>, dedupKey = ''): Promise<void> {
+  async trackOperation(label: string, action: () => Promise<void>, dedupKey = '', operationType?: TransferItem['operationType']): Promise<void> {
     if (dedupKey) {
       const already = this.queue.find(
         (it) =>
@@ -302,6 +302,7 @@ class TransferEngine extends EventEmitter {
       source: { connectionId: '', path: dedupKey },
       dest: { connectionId: '', path: '' },
       kind: 'operation',
+      operationType,
       bytesTotal: 0,
       bytesDone: 0,
       status: 'transferring',

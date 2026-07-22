@@ -12,6 +12,17 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.15.0] — 2026-07-21
+
+### Added
+- **"Process Complete" summary** — the completion line in the Transfers header now shows exactly what finished: "√ Process Complete · 5 Files Transferred · 2 Files Downloaded · 3 Renamed · 1 Deleted" — every action type that occurred in the session is listed. Downloads (remote → local), renames, and deletes each appear as their own count.
+- **Transfer panel auto-opens** — starting any transfer (drag, download, copy/paste) now automatically expands the Transfers panel so activity is always visible without having to click.
+
+### Fixed
+- **"Transfers Cancelled" after Cancel All** — clicking Cancel All now reliably shows "✕ Transfers Cancelled" even if a few files managed to complete before the cancellation landed. Previously, any done item would flip the summary back to "Transfers Complete".
+- **Dock badge flickering** — the macOS dock badge was briefly showing the wrong count (e.g. flipping between 1 and 5) because each individual file-completion event was temporarily reporting as "all done". Fixed by computing the badge from the full queue rather than the single item that triggered the event.
+- **EGL terminal noise** — suppressed `[ERROR:gl_display.cc] eglQueryDeviceAttribEXT: Bad attribute` log spam that appeared in the terminal when running `npm run dev` on macOS. Tells Chromium to use Metal instead of probing EGL.
+
 ## [1.14.0] — 2026-07-21
 
 ### Changed

@@ -34,7 +34,9 @@ const sendToRenderer = (channel: string, payload: unknown): void => {
 // Updates are already throttled by the engine's 250ms progress timer — send directly.
 transferEngine.on('update', (items) => {
   sendToRenderer(IPC.evtTransferUpdate, items)
-  updateSystemProgress(items)
+  // Use full queue (not just changed items) so a single-file completion event
+  // doesn't incorrectly flip the dock badge to "all done" mid-batch.
+  updateSystemProgress(transferEngine.getAll())
 })
 
 let dockClearTimer: ReturnType<typeof setTimeout> | null = null
@@ -277,7 +279,7 @@ function registerIpc(): void {
       await transferEngine.trackOperation(`Delete "${name}"`, async () => {
         await provider.delete(args.path, args.kind)
         log.warn('fs', `Deleted ${args.kind} "${args.path}"`)
-      }, `delete:${args.path}`)
+      }, `delete:${args.path}`, 'delete')
     }
   )
 
@@ -289,7 +291,7 @@ function registerIpc(): void {
       await transferEngine.trackOperation(`Rename "${oldName}" → "${args.newName}"`, async () => {
         await provider.rename(args.path, args.newName)
         log.info('fs', `Renamed "${args.path}" → "${args.newName}"`)
-      }, `rename:${args.path}`)
+      }, `rename:${args.path}`, 'rename')
     }
   )
 
@@ -607,6 +609,13 @@ function registerIpc(): void {
     }
     await fs.writeFile(uiStatePath(), JSON.stringify(state, null, 2), 'utf-8')
   })
+}
+
+// Suppress Chromium GPU/EGL process log noise (EGL driver warnings) in dev mode.
+// Tells Chromium to use Metal instead of probing EGL, eliminating the
+// "[ERROR:gl_display.cc] eglQueryDeviceAttribEXT: Bad attribute" stderr spam.
+if (!app.isPackaged && process.platform === 'darwin') {
+  app.commandLine.appendSwitch('use-angle', 'metal')
 }
 
 app.whenReady().then(async () => {

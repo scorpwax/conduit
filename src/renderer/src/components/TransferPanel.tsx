@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TransferItem } from '@shared/types'
+import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { useStore } from '../store'
 import { formatBytes, formatSpeed } from '../lib/format'
 import { confirmDialog } from '../lib/dialog'
@@ -13,6 +14,9 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 
 	const [collapsed, setCollapsed] = useState(() => !(open ?? false))
 	const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
+	// Tracks whether the user explicitly hit "Cancel All" so we can show
+	// "Transfers Cancelled" even if some files finished before the cancel landed.
+	const [canceledAll, setCanceledAll] = useState(false)
 	useEffect(() => {
 		const goOffline = (): void => setIsOffline(true)
 		const goOnline = (): void => setIsOffline(false)
@@ -27,6 +31,11 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	useEffect(() => {
 		if (open !== undefined) setCollapsed(!open)
 	}, [open])
+
+	// Reset canceledAll flag when a fresh batch of transfers starts (queue clears first).
+	useEffect(() => {
+		if (transfers.length === 0) setCanceledAll(false)
+	}, [transfers.length])
 	const [height, setHeight] = useState(190)
 	const dragging = useRef(false)
 
@@ -84,10 +93,10 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	// All O(n) work is memoized — only reruns when the transfers array reference changes
 	// (i.e. when IPC delivers an update), not on every 250ms timer tick.
 	const {
-		active, done, failed, canceled, allFinished, allCanceled,
+		active, done, failed, canceled, allFinished,
 		totalBytes, doneBytes, aggSpeed,
 		earliestStart, activeFiles,
-		sorted, hiddenCount, routes
+		sorted, hiddenCount, routes, summaryParts
 	} = useMemo(() => {
 		const MAX_FINISHED = 100
 		const active = transfers.filter((t) => t.status === 'transferring' || t.status === 'queued')
@@ -95,7 +104,6 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		const failed = transfers.filter((t) => t.status === 'error')
 		const canceled = transfers.filter((t) => t.status === 'canceled')
 		const allFinished = transfers.length > 0 && active.length === 0
-		const allCanceled = allFinished && done.length === 0 && failed.length === 0 && canceled.length > 0
 
 		const counted = transfers.filter(
 			(t) => t.status !== 'canceled' && t.status !== 'error' && t.kind !== 'operation'
@@ -142,8 +150,24 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		}
 		const routes = [...routeSet]
 
-		return { active, done, failed, canceled, allFinished, allCanceled, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount, routes }
-	}, [transfers])
+		// Build "Process Complete" summary parts from done items.
+		const transferred = done.filter(
+			(t) => t.kind === 'file' && !(t.dest.connectionId === BUILTIN_LOCAL_ID && t.source.connectionId !== BUILTIN_LOCAL_ID)
+		).length
+		const downloaded = done.filter(
+			(t) => t.kind === 'file' && t.dest.connectionId === BUILTIN_LOCAL_ID && t.source.connectionId !== BUILTIN_LOCAL_ID
+		).length
+		const renamed = done.filter((t) => t.kind === 'operation' && t.operationType === 'rename').length
+		const deleted = done.filter((t) => t.kind === 'operation' && t.operationType === 'delete').length
+		const summaryParts: string[] = []
+		if (transferred > 0) summaryParts.push(`${transferred} File${transferred !== 1 ? 's' : ''} Transferred`)
+		if (downloaded > 0) summaryParts.push(`${downloaded} File${downloaded !== 1 ? 's' : ''} Downloaded`)
+		if (renamed > 0) summaryParts.push(`${renamed} Renamed`)
+		if (deleted > 0) summaryParts.push(`${deleted} Deleted`)
+		if (failed.length > 0) summaryParts.push(`${failed.length} Failed`)
+
+		return { active, done, failed, canceled, allFinished, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount, routes, summaryParts }
+	}, [transfers, connections])
 
 	// Freeze elapsed when complete; reset byte samples when transfers restart.
 	useEffect(() => {
@@ -223,11 +247,11 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 									aggSpeed ? formatSpeed(aggSpeed) : ''
 								].filter(Boolean).join(' · ')
 							})()
-							: allCanceled
+							: canceledAll && allFinished
 								? <span className="transfers-cancelled">✕ Transfers Cancelled</span>
 								: allFinished
 								? <span className="transfers-complete">
-									✓ Transfers Complete · {done.length} completed{failed.length > 0 ? <span className="transfers-failed"> · {failed.length} failed</span> : ''}
+									✓ Process Complete{summaryParts.length > 0 ? ` · ${summaryParts.join(' · ')}` : ''}
 									{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
 								</span>
 								: transfers.length === 0
@@ -249,6 +273,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 										danger: true
 									})
 									if (!ok) return
+									setCanceledAll(true)
 									await window.conduit.transfer.cancelAll()
 									const all = await window.conduit.transfer.getAll()
 									setTransfers(all)
