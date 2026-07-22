@@ -40,6 +40,21 @@ body,
 	margin: 0;
 }
 
+/* ── Google Material Symbols ─────────────────────────────────────────────── */
+/* Usage: <span className="material-symbols-outlined">icon_name</span>        */
+/* Icon names: https://fonts.google.com/icons                                 */
+.material-symbols-outlined {
+	font-size: 16px;
+	line-height: 1;
+	vertical-align: middle;
+	user-select: none;
+	/* Variable font axes — adjust per-icon with inline style if needed:
+	   fill: 0 = outline, 1 = filled
+	   wght: 100–700 weight
+	   opsz: 20 | 24 | 40 | 48 optical size */
+	font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+}
+
 body {
 	font-family: var(--font);
 	background: var(--bg);
@@ -566,6 +581,11 @@ select {
 	color: var(--accent-2);
 }
 
+.refresh-btn {
+	font-size: 30px;
+	height: 44px;
+}
+
 /* Connection status dot */
 .status-dot {
 	display: inline-block;
@@ -702,6 +722,7 @@ select {
 	font-size: 11px;
 	color: var(--text-faint);
 	font-weight: 400;
+	text-align: center;
 }
 
 .transfer-offline-banner {

@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import 'material-symbols/outlined.css'
 import './styles.css'
 
 // StrictMode intentionally double-invokes effects (mount→unmount→remount) in

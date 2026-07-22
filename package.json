@@ -28,6 +28,7 @@
 		"@aws-sdk/lib-storage": "^3.637.0",
 		"basic-ftp": "^6.0.1",
 		"electron-updater": "^6.3.0",
+		"material-symbols": "^0.45.8",
 		"ssh2": "^1.17.0",
 		"webdav": "^5.10.0",
 		"zustand": "^4.5.5"
