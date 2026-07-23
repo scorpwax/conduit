@@ -230,7 +230,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 			<div className="transfer-header">
 				{/* Left toggle zone — clicking this collapses/expands the panel */}
 				<div className="transfer-header-toggle" onClick={() => { setCollapsed((v) => { onOpenChange?.(v); return !v }) }}>
-					<span style={{ color: 'var(--text-faint)' }}>{collapsed ? '▸' : '▾'}</span>
+					<span style={{ color: 'var(--text-faint)', display: 'none' }}>{collapsed ? '▸' : '▾'}</span>
 					<span className="title">Transfers</span>
 					<span className="count">
 						{active.length > 0
@@ -250,13 +250,13 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 							: canceledAll && allFinished
 								? <span className="transfers-cancelled">✕ Transfers Cancelled</span>
 								: allFinished
-								? <span className="transfers-complete">
-									✓ Process Complete{summaryParts.length > 0 ? ` · ${summaryParts.join(' · ')}` : ''}
-									{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
-								</span>
-								: transfers.length === 0
-									? 'No Transfers'
-									: `${done.length} done${failed.length ? ` · ${failed.length} failed` : ''}${canceled.length ? ` · ${canceled.length} cancelled` : ''}`}
+									? <span className="transfers-complete">
+										<span className="material-symbols-outlined">check</span> Process Complete{summaryParts.length > 0 ? ` · ${summaryParts.join(' · ')}` : ''}
+										{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
+									</span>
+									: transfers.length === 0
+										? 'No Transfers'
+										: `${done.length} done${failed.length ? ` · ${failed.length} failed` : ''}${canceled.length ? ` · ${canceled.length} cancelled` : ''}`}
 					</span>
 				</div>
 				{/* Right action buttons — isolated from the toggle zone */}

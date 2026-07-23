@@ -69,15 +69,6 @@ export default function App(): JSX.Element {
 		})
 	}, [panes.length, transferPanelOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-	// Auto-open the Transfer Panel whenever new items appear in the queue.
-	const prevTransferCountRef = useRef(0)
-	useEffect(() => {
-		if (transfers.length > prevTransferCountRef.current) {
-			setTransferPanelOpen(true)
-		}
-		prevTransferCountRef.current = transfers.length
-	}, [transfers.length])
-
 	// Fire a macOS notification when a transfer batch finishes.
 	const prevAllFinishedRef = useRef(false)
 	useEffect(() => {
@@ -192,7 +183,7 @@ export default function App(): JSX.Element {
 					title={downloadDir ? `Download folder: ${downloadDir}` : 'Set download folder'}
 					onClick={() => void pickDownloadDir()}
 				>
-					↓ {downloadDir ? (downloadDir.split('/').pop() || downloadDir.split('\\').pop() || 'Downloads') : 'Set Downloads'}
+					<span className="material-symbols-outlined">download_2</span> {downloadDir ? (downloadDir.split('/').pop() || downloadDir.split('\\').pop() || 'Downloads') : 'Set Downloads'}
 				</button>
 				<div className="font-controls" title="Font size (⌘+ / ⌘-)">
 					<button className="iconbtn" onClick={() => adjustFontScale(-0.1)} title="Smaller text">
@@ -207,10 +198,10 @@ export default function App(): JSX.Element {
 					title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
 					onClick={toggleShowHidden}
 				>
-					{showHidden ? '👁 Hidden files: On' : '👁 Hidden files: Off'}
+					{showHidden ? `'👁 Hidden Files: On'` : '👁 Hidden Files: Off'}
 				</button>
 				<button className="btn ghost toolbtn" title="Activity log" onClick={() => setLogsOpen(true)}>
-					🗒 Logs
+					<span className="material-symbols-outlined">article</span> Logs
 				</button>
 				<button
 					className="btn ghost toolbtn add-pane"
@@ -218,7 +209,7 @@ export default function App(): JSX.Element {
 					onClick={addPane}
 					disabled={panes.length >= 5}
 				>
-					＋ Add Pane
+					<span className="material-symbols-outlined">add</span> Add Pane
 				</button>
 			</div>
 
