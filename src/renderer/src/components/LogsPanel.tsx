@@ -28,7 +28,14 @@ interface Props {
   onClose: () => void
 }
 
-const CONCURRENCY_OPTIONS = [1, 2, 3, 5, 8, 10]
+const CONCURRENCY_OPTIONS = [
+  { n: 1, label: '1 — Sequential (most stable, large files)' },
+  { n: 2, label: '2 — Recommended for large files (default)' },
+  { n: 3, label: '3 — Balanced' },
+  { n: 5, label: '5 — Fast (reliable connection)' },
+  { n: 8, label: '8 — Aggressive' },
+  { n: 10, label: '10 — Maximum' },
+]
 
 export function LogsPanel({ onClose }: Props): JSX.Element {
   const [entries, setEntries] = useState<LogEntry[]>([])
@@ -37,7 +44,7 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
   const [dateRange, setDateRange] = useState(0)
   const [autoScroll, setAutoScroll] = useState(true)
   const [retention, setRetention] = useState<number>(180)
-  const [concurrency, setConcurrency] = useState<number>(5)
+  const [concurrency, setConcurrency] = useState<number>(2)
   const [copied, setCopied] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -46,7 +53,7 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
     void window.conduit.logs.getRecent(1000).then(setEntries)
     void window.conduit.settings.get().then((s: AppSettings) => {
       setRetention(s.logRetentionDays)
-      setConcurrency(s.transferConcurrency ?? 5)
+      setConcurrency(s.transferConcurrency ?? 2)
     })
     const off = window.conduit.logs.onEntries((batch) => {
       setEntries((prev) => {
@@ -176,10 +183,8 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
           <label className="logs-retention">
             Concurrent transfers:
             <select value={concurrency} onChange={(e) => changeConcurrency(Number(e.target.value))}>
-              {CONCURRENCY_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}{n === 5 ? ' (default)' : ''}
-                </option>
+              {CONCURRENCY_OPTIONS.map(({ n, label }) => (
+                <option key={n} value={n}>{label}</option>
               ))}
             </select>
           </label>

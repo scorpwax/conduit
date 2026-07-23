@@ -1,10 +1,11 @@
-import { Readable, Transform, PassThrough } from 'stream'
+import { Readable, Transform } from 'stream'
 import http from 'http'
 import https from 'https'
 import {
   S3Client,
   ListObjectsV2Command,
   GetObjectCommand,
+  type GetObjectCommandInput,
   HeadObjectCommand,
   PutObjectCommand,
   CopyObjectCommand,
@@ -44,9 +45,9 @@ export class S3Provider implements Provider {
   constructor(public readonly connection: Connection) {
     this.cfg = connection.config as S3Config
     // Keep-alive agent: reuses TLS connections across requests to the same host.
-    // maxSockets 75: uploads run queueSize=6 parts × 5 concurrent files = 30 upload
-    // connections; downloads run 4 parallel range requests × 5 files = 20 download
-    // connections; remainder covers list/stat/mkdir/delete headroom.
+    // maxSockets 75: uploads run queueSize=6 parts × 2 concurrent files = 12 upload
+    // connections; downloads are single-stream × 2 concurrent files = 2 connections;
+    // remainder covers list/stat/mkdir/delete headroom.
     const agent = new https.Agent({ keepAlive: true, maxSockets: 75 })
     this.client = new S3Client({
       region: this.cfg.region,
@@ -163,87 +164,15 @@ export class S3Provider implements Provider {
     throw Object.assign(new Error(`Not found: ${key}`), { code: 'ENOENT' })
   }
 
-  async createReadStream(path: string): Promise<{ stream: Readable; size: number }> {
+  async createReadStream(path: string, offset = 0): Promise<{ stream: Readable; size: number }> {
     const key = path.replace(/^\/+/, '')
-    const res = await this.client.send(
-      new GetObjectCommand({ Bucket: this.cfg.bucket, Key: key })
-    )
-    const size = res.ContentLength ?? 0
-
-    // For large files, discard the single-connection stream and replace it with
-    // a parallel range-request downloader. Multiple simultaneous byte-range GETs
-    // saturate available bandwidth far better than one TCP connection can.
-    const PARALLEL_THRESHOLD = 32 * 1024 * 1024   // 32 MB
-    if (size > PARALLEL_THRESHOLD) {
-      const initial = res.Body as Readable
-      initial.on('error', () => { /* suppress close error from destroying unused stream */ })
-      initial.destroy()
-      return { stream: this.parallelDownloadStream(key, size), size }
-    }
-
+    const params: GetObjectCommandInput = { Bucket: this.cfg.bucket, Key: key }
+    if (offset > 0) params.Range = `bytes=${offset}-`
+    const res = await this.client.send(new GetObjectCommand(params))
+    // When using a Range request, ContentLength is the remaining bytes, not the total.
+    // Adding the offset back gives the true total size for progress display.
+    const size = (res.ContentLength ?? 0) + offset
     return { stream: res.Body as Readable, size }
-  }
-
-  /**
-   * Downloads a file using multiple simultaneous byte-range GET requests, emitting
-   * data in order via a PassThrough. Typically 2-3× faster than a single connection.
-   */
-  private parallelDownloadStream(key: string, size: number): Readable {
-    const CHUNK_SIZE = 32 * 1024 * 1024   // 32 MB per range request
-    const PARALLEL   = 4                  // simultaneous range GETs
-
-    const pass = new PassThrough({ highWaterMark: 4 * 1024 * 1024 })
-    const numChunks = Math.ceil(size / CHUNK_SIZE)
-
-    // ready: finished-but-not-yet-emitted chunks (waiting for an earlier chunk)
-    const ready = new Map<number, Buffer>()
-    let nextEmit = 0   // next chunk index to push downstream
-    let fetching = 0   // currently in-flight requests
-    let nextFetch = 0  // next chunk index to start fetching
-
-    const tryEmit = (): void => {
-      while (ready.has(nextEmit)) {
-        const buf = ready.get(nextEmit)!
-        ready.delete(nextEmit)
-        nextEmit++
-        if (!pass.destroyed) pass.push(buf)
-      }
-      if (nextEmit >= numChunks && fetching === 0 && nextFetch >= numChunks) {
-        if (!pass.destroyed) pass.push(null)
-      }
-    }
-
-    const schedule = (): void => {
-      while (fetching < PARALLEL && nextFetch < numChunks && !pass.destroyed) {
-        const idx = nextFetch++
-        fetching++
-        const start = idx * CHUNK_SIZE
-        const end = Math.min(start + CHUNK_SIZE - 1, size - 1)
-        this.client
-          .send(new GetObjectCommand({ Bucket: this.cfg.bucket, Key: key, Range: `bytes=${start}-${end}` }))
-          .then(async (res) => {
-            const parts: Buffer[] = []
-            for await (const part of res.Body as AsyncIterable<Uint8Array>) {
-              if (pass.destroyed) return null
-              parts.push(Buffer.isBuffer(part) ? part : Buffer.from(part))
-            }
-            return parts.length ? Buffer.concat(parts) : null
-          })
-          .then((buf) => {
-            fetching--
-            if (!buf || pass.destroyed) { tryEmit(); return }
-            ready.set(idx, buf)
-            tryEmit()
-            schedule()
-          })
-          .catch((err: Error) => {
-            if (!pass.destroyed) pass.destroy(err)
-          })
-      }
-    }
-
-    schedule()
-    return pass
   }
 
   async writeFile(

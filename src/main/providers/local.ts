@@ -65,26 +65,31 @@ export class LocalProvider implements Provider {
     }
   }
 
-  async createReadStream(path: string): Promise<{ stream: Readable; size: number }> {
+  async createReadStream(path: string, offset = 0): Promise<{ stream: Readable; size: number }> {
     const stat = await fs.stat(path)
-    return { stream: createReadStream(path), size: stat.size }
+    const stream = offset > 0 ? createReadStream(path, { start: offset }) : createReadStream(path)
+    return { stream, size: stat.size }
   }
 
   async writeFile(
     path: string,
     body: Readable,
     _size: number,
-    onProgress?: (bytesWritten: number) => void
+    onProgress?: (bytesWritten: number) => void,
+    appendFromOffset = 0
   ): Promise<void> {
     await fs.mkdir(dirname(path), { recursive: true })
-    let written = 0
+    // Track cumulative bytes including any already-written offset so progress
+    // reflects total file progress, not just the bytes written in this session.
+    let written = appendFromOffset
     if (onProgress) {
       body.on('data', (chunk: Buffer) => {
         written += chunk.length
         onProgress(written)
       })
     }
-    await pipeline(body, createWriteStream(path))
+    const flags = appendFromOffset > 0 ? 'a' : 'w'
+    await pipeline(body, createWriteStream(path, { flags }))
   }
 
   async mkdir(path: string): Promise<void> {

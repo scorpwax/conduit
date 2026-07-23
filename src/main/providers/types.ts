@@ -15,18 +15,26 @@ export interface Provider {
   /** Stat a single entry. */
   stat(path: string): Promise<FileEntry>
 
-  /** Open a readable stream for a file, along with its byte size. */
-  createReadStream(path: string): Promise<{ stream: Readable; size: number }>
+  /**
+   * Open a readable stream for a file. When offset > 0, the stream begins
+   * at that byte position (used to resume interrupted downloads).
+   * Returned `size` is always the TOTAL file size, not the remaining bytes.
+   */
+  createReadStream(path: string, offset?: number): Promise<{ stream: Readable; size: number }>
 
   /**
    * Write a file from a readable stream. Implementations should call
-   * onProgress with the cumulative number of bytes written when possible.
+   * onProgress with the cumulative number of bytes written (including
+   * appendFromOffset) when possible.
+   * When appendFromOffset > 0, the provider appends to an existing file
+   * instead of overwriting it (used for resumable downloads).
    */
   writeFile(
     path: string,
     body: Readable,
     size: number,
-    onProgress?: (bytesWritten: number) => void
+    onProgress?: (bytesWritten: number) => void,
+    appendFromOffset?: number
   ): Promise<void>
 
   /** Ensure a directory exists (recursively). No-op for object stores. */

@@ -179,6 +179,8 @@ export interface TransferItem {
   speed?: number
   startedAt?: number
   finishedAt?: number
+  /** Byte offset to resume from (set by engine.retry when a partial file exists). */
+  resumeFromOffset?: number
 }
 
 /** Request payload to enqueue a transfer of one or more items. */
@@ -196,6 +198,8 @@ export interface TransferRequest {
    * (skip is handled by the caller omitting those paths)
    */
   conflictPolicy?: 'replace' | 'keepBoth'
+  /** Resume a previously-interrupted download from this byte offset. */
+  resumeFromOffset?: number
 }
 
 export interface ConnectionTestResult {

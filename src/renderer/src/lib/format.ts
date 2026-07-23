@@ -3,8 +3,8 @@ export function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
   let n = bytes
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024
+  while (n >= 1000 && i < units.length - 1) {
+    n /= 1000
     i++
   }
   return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`

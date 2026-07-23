@@ -12,6 +12,17 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.16.0] — 2026-07-23
+
+### Added
+- **Resumable downloads** — when a download fails or is canceled partway through, clicking Retry detects the partial file on disk and resumes from that byte offset using an S3 `Range` request instead of restarting from scratch. A 90 GB file interrupted at 70 GB picks up at 70 GB.
+
+### Changed
+- **File sizes now match Finder** — all byte displays now use decimal units (1 KB = 1,000 B, 1 MB = 1,000,000 B) instead of binary (1 GiB = 1,073,741,824 B). A 128 GB BRAW file now shows as ~128 GB to match macOS Finder, Finder's Get Info, and most media tools.
+- **Default concurrency reduced to 2** — fewer simultaneous transfers means each file gets more bandwidth and is less likely to fail on congested or long-distance connections. Concurrency dropdown now shows descriptive notes for each option so users can make an informed choice.
+- **Reverted parallel range-request download** — the 4-simultaneous-GET approach added extra failure points for 40-minute downloads on imperfect connections. Single-stream downloads are more reliable for large BRAW/MXF files over extended transfers.
+- **Upload concurrency kept at 6 × 32 MB parts** (192 MB in-flight per file) — the per-file multipart upload improvements from v1.15.0 are retained; the `@aws-sdk/lib-storage` class already retries individual failed parts automatically.
+
 ## [1.15.0] — 2026-07-21
 
 ### Added

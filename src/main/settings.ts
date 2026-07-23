@@ -7,7 +7,7 @@ import type { AppSettings } from '@shared/types'
 
 const DEFAULTS: AppSettings = {
   logRetentionDays: 180,
-  transferConcurrency: 5
+  transferConcurrency: 2
 }
 
 let cache: AppSettings | null = null

@@ -8,8 +8,8 @@ function fmtBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let i = 0
   let n = bytes
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024
+  while (n >= 1000 && i < units.length - 1) {
+    n /= 1000
     i++
   }
   return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`
@@ -30,7 +30,7 @@ class TransferEngine extends EventEmitter {
   private canceled = new Set<string>()
   private activeStreams = new Map<string, import('stream').Readable>()
   private running = 0
-  private concurrency = 5
+  private concurrency = 2
   private seq = 0
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
@@ -187,8 +187,9 @@ class TransferEngine extends EventEmitter {
       dest: { connectionId: req.destConnectionId, path: destPath },
       kind: 'file',
       bytesTotal: size,
-      bytesDone: 0,
-      status: 'queued'
+      bytesDone: req.resumeFromOffset ?? 0,
+      status: 'queued',
+      resumeFromOffset: req.resumeFromOffset
     }
   }
 
@@ -238,19 +239,39 @@ class TransferEngine extends EventEmitter {
     }
   }
 
-  /** Re-enqueue a failed or canceled item as a fresh transfer. */
+  /** Re-enqueue a failed or canceled item, resuming from a partial file if available. */
   retry(id: string): void {
     const item = this.byId.get(id)
     if (!item || item.kind !== 'file') return
     if (item.status !== 'error' && item.status !== 'canceled') return
+    void this.retryAsync(item)
+  }
+
+  private async retryAsync(item: TransferItem): Promise<void> {
+    // Stat the partial destination file to find how many bytes were written.
+    // This is more reliable than item.bytesDone which may reflect buffered-but-
+    // not-yet-flushed bytes at the time of failure.
+    let resumeFromOffset = 0
+    try {
+      const dest = await getProvider(item.dest.connectionId)
+      const partial = await dest.stat(item.dest.path)
+      if (partial.size && partial.size > 0 && partial.size < item.bytesTotal) {
+        resumeFromOffset = partial.size
+        log.info('transfer', `Resuming "${item.name}" from ${fmtBytes(resumeFromOffset)} (partial file detected)`)
+      }
+    } catch {
+      // Destination file doesn't exist or can't be stat'd — start fresh
+    }
+    const sep = item.dest.path.includes('/') ? '/' : '\\'
     void this.enqueue({
       sourceConnectionId: item.source.connectionId,
       destConnectionId: item.dest.connectionId,
       sourcePaths: [item.source.path],
-      destDir: item.dest.path.includes('/') || item.dest.path.includes('\\')
-        ? item.dest.path.substring(0, item.dest.path.lastIndexOf(item.dest.path.includes('/') ? '/' : '\\'))
+      destDir: item.dest.path.includes(sep)
+        ? item.dest.path.substring(0, item.dest.path.lastIndexOf(sep))
         : '',
-      conflictPolicy: 'replace'
+      conflictPolicy: 'replace',
+      resumeFromOffset
     })
   }
 
@@ -328,7 +349,8 @@ class TransferEngine extends EventEmitter {
     if (this.canceled.has(item.id)) return
     item.status = 'transferring'
     item.startedAt = Date.now()
-    item.bytesDone = 0
+    const resumeOffset = item.resumeFromOffset ?? 0
+    item.bytesDone = resumeOffset
     // Immediate emit so the row shows "transferring" without waiting for first timer tick.
     this.emit('update', [item])
     this.startProgressTimer()
@@ -337,10 +359,9 @@ class TransferEngine extends EventEmitter {
       const source = await getProvider(item.source.connectionId)
       const dest = await getProvider(item.dest.connectionId)
 
-      const { stream, size } = await source.createReadStream(item.source.path)
+      const { stream, size } = await source.createReadStream(item.source.path, resumeOffset)
       // Prefer the size from createReadStream (re-stats the file) over the enqueue-time
-      // stat, which can be stale or zero if the file was briefly inaccessible. This
-      // prevents passing ContentLength: undefined to the S3 SDK.
+      // stat, which can be stale or zero if the file was briefly inaccessible.
       if (size) item.bytesTotal = size
       this.activeStreams.set(item.id, stream)
 
@@ -365,7 +386,7 @@ class TransferEngine extends EventEmitter {
         }
       }
 
-      await dest.writeFile(item.dest.path, stream, item.bytesTotal, onProgress)
+      await dest.writeFile(item.dest.path, stream, item.bytesTotal, onProgress, resumeOffset)
 
       if (this.canceled.has(item.id)) {
         item.status = 'canceled'
