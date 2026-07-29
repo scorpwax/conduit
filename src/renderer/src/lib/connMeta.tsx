@@ -9,17 +9,17 @@ import type { ConnectionType } from '@shared/types'
 // ─── Color palette ───────────────────────────────────────────────────────────
 
 export const CONN_COLORS: Record<ConnectionType, string> = {
-  local:    '#6b7280', // slate grey
-  s3:       '#f59e0b', // AWS amber/yellow
-  wasabi:   '#22c55e', // Wasabi green
-  sftp:     '#8b5cf6', // purple (SSH/secure)
-  smb:      '#ec4899', // pink (Windows/NAS)
-  ftp:      '#ef4444', // red
-  webdav:   '#0891b2', // teal (cloud/HTTP) — distinct from SMB pink
-  gdrive:   '#4285f4', // Google blue
-  onedrive: '#0078d4', // Microsoft blue
-  dropbox:  '#0061ff', // Dropbox blue
-  frameio:  '#1f1f1f', // Frame.io black
+  local:    '#6b7280', 
+  s3:       '#f59e0b', 
+  wasabi:   '#22c55e', 
+  sftp:     '#5cf6f4', 
+  smb:      '#ec4899', 
+  ftp:      '#ef4444', 
+  webdav:   '#e3ef00', 
+  gdrive:   '#02A745', 
+  onedrive: '#0078d4', 
+  dropbox:  '#0061ff', 
+  frameio:  '#5A52FF', 
 }
 
 export function connColor(type: ConnectionType): string {
@@ -162,15 +162,17 @@ function IconOnedrive(): JSX.Element {
   )
 }
 
-/** Frame.io — stylized film-frame "F" mark */
+/** Frame.io — signal broadcast waves (official logo) */
 function IconFrameIo(): JSX.Element {
   return (
-    <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style={{ ...S, padding: '3px' }}>
-      <rect width="40" height="40" rx="6" fill="#1f1f1f" />
-      <rect x="8" y="8" width="24" height="3" rx="1.5" fill="white" />
-      <rect x="8" y="15" width="16" height="3" rx="1.5" fill="white" />
-      <rect x="8" y="22" width="20" height="3" rx="1.5" fill="white" />
-      <rect x="8" y="29" width="12" height="3" rx="1.5" fill="white" />
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ ...S, padding: '1px' }}>
+      {/* 4 arcs, largest to smallest, left to right */}
+      <path d="M2 3.5 C2 3.5 0 8 0 12 C0 16 2 20.5 2 20.5" stroke="white" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+      <path d="M6.5 6 C6.5 6 5 9 5 12 C5 15 6.5 18 6.5 18" stroke="white" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+      <path d="M11 8 C11 8 9.8 10 9.8 12 C9.8 14 11 16 11 16" stroke="white" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+      <path d="M15 9.5 C15 9.5 14.2 10.8 14.2 12 C14.2 13.2 15 14.5 15 14.5" stroke="white" strokeWidth="2.4" strokeLinecap="round" fill="none" />
+      {/* dot */}
+      <circle cx="19" cy="12" r="1.5" fill="white" />
     </svg>
   )
 }
@@ -208,7 +210,7 @@ const ICONS: Record<ConnectionType, () => JSX.Element> = {
 }
 
 // Brand types render their logo on white; others get white icon on colored bg.
-const BRAND_TYPES = new Set<ConnectionType>(['gdrive', 'onedrive', 'dropbox', 'frameio'])
+const BRAND_TYPES = new Set<ConnectionType>(['gdrive', 'onedrive', 'dropbox'])
 
 interface ConnIconProps {
   type: ConnectionType

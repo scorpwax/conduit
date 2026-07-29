@@ -308,6 +308,10 @@ function registerIpc(): void {
     await previewFile(args.connectionId, args.path)
   })
 
+  ipcMain.handle(IPC.fsRevealFile, (_e, args: { path: string }) => {
+    shell.showItemInFolder(args.path)
+  })
+
   // Return the basenames of source items that already exist in the destination dir.
   ipcMain.handle(
     IPC.transferCheckConflicts,
@@ -531,6 +535,16 @@ function registerIpc(): void {
     const res = await dialog.showSaveDialog(mainWindow!, {
       defaultPath: `conduit-log-${new Date().toISOString().slice(0, 10)}.log`,
       filters: [{ name: 'Log', extensions: ['log', 'txt'] }]
+    })
+    if (res.canceled || !res.filePath) return false
+    await fs.writeFile(res.filePath, text, 'utf-8')
+    return true
+  })
+
+  ipcMain.handle(IPC.logsExportFileTree, async (_e, text: string) => {
+    const res = await dialog.showSaveDialog(mainWindow!, {
+      defaultPath: `File Tree ${new Date().toISOString().slice(0, 10)}.txt`,
+      filters: [{ name: 'Text', extensions: ['txt'] }]
     })
     if (res.canceled || !res.filePath) return false
     await fs.writeFile(res.filePath, text, 'utf-8')

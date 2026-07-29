@@ -22,6 +22,7 @@ export const IPC = {
   fsDelete: 'fs:delete',
   fsRename: 'fs:rename',
   fsPreview: 'fs:preview',
+  fsRevealFile: 'fs:revealFile',
 
   transferCheckConflicts: 'transfer:checkConflicts',
   transferEnqueue: 'transfer:enqueue',
@@ -47,6 +48,7 @@ export const IPC = {
   logsOpenFolder: 'logs:openFolder',
   logsExport: 'logs:export',
   logsExportText: 'logs:exportText',
+  logsExportFileTree: 'logs:exportFileTree',
   logsClear: 'logs:clear',
 
   settingsGet: 'settings:get',

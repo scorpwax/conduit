@@ -64,6 +64,8 @@ const api = {
       ipcRenderer.invoke(IPC.fsRename, { connectionId, path, newName }),
     preview: (connectionId: string, path: string): Promise<void> =>
       ipcRenderer.invoke(IPC.fsPreview, { connectionId, path }),
+    revealFile: (path: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsRevealFile, { path }),
     folderSize: (connectionId: string, path: string): Promise<{ size: number; latestModified: string | null } | null> =>
       ipcRenderer.invoke(IPC.fsFolderSize, { connectionId, path }),
     checksum: (connectionId: string, path: string): Promise<string | null> =>
@@ -106,6 +108,7 @@ const api = {
     openFolder: (): Promise<string> => ipcRenderer.invoke(IPC.logsOpenFolder),
     export: (): Promise<boolean> => ipcRenderer.invoke(IPC.logsExport),
     exportText: (text: string): Promise<boolean> => ipcRenderer.invoke(IPC.logsExportText, text),
+    exportFileTree: (text: string): Promise<boolean> => ipcRenderer.invoke(IPC.logsExportFileTree, text),
     clear: (): Promise<void> => ipcRenderer.invoke(IPC.logsClear),
     onEntries: (cb: (entries: LogEntry[]) => void): (() => void) => {
       const listener = (_e: unknown, entries: LogEntry[]): void => cb(entries)

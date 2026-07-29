@@ -244,14 +244,14 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 									transferring.length > 0 && `${transferring.length} uploading`,
 									queued.length > 0 && `${queued.length} queued`,
 									`${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}`,
-									aggSpeed ? formatSpeed(aggSpeed) : ''
+									effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
 								].filter(Boolean).join(' · ')
 							})()
 							: canceledAll && allFinished
 								? <span className="transfers-cancelled">✕ Transfers Cancelled</span>
 								: allFinished
 									? <span className="transfers-complete">
-										<span className="material-symbols-outlined">check</span> Process Complete{summaryParts.length > 0 ? ` · ${summaryParts.join(' · ')}` : ''}
+										<span><span className="material-symbols-outlined">check</span> Process Complete{summaryParts.length > 0 ? ` · ${summaryParts.join(' · ')}` : ''}</span>
 										{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
 									</span>
 									: transfers.length === 0
@@ -339,6 +339,13 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 								const waitElapsed = rowIsWaiting
 									? now - (waitingStartRef.current.get(t.id) ?? now)
 									: null
+								// Fallback speed: distribute renderer-measured speed across active files.
+								const fallbackSpeed = t.status === 'transferring' && activeFiles.length > 0
+									? effectiveSpeed / activeFiles.length
+									: 0
+								const canReveal = t.status === 'done' && t.kind === 'file'
+									&& t.dest.connectionId === BUILTIN_LOCAL_ID
+									&& window.conduit.platform === 'darwin'
 								return (
 									<MemoRow
 										key={t.id}
@@ -346,6 +353,8 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 										id={t.id}
 										cancelTransfer={cancelTransfer}
 										waitElapsed={waitElapsed}
+										fallbackSpeed={fallbackSpeed}
+										canReveal={canReveal}
 									/>
 								)
 							})}
@@ -365,22 +374,28 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 /** Stable-callback wrapper so React.memo on TransferRow actually works.
  *  waitElapsed is null for non-waiting rows (stable → memo skips them) and
  *  a live ms count for waiting rows (updates every 250ms to show elapsed time). */
-function MemoRow({ item, id, cancelTransfer, waitElapsed }: {
+function MemoRow({ item, id, cancelTransfer, waitElapsed, fallbackSpeed, canReveal }: {
 	item: TransferItem
 	id: string
 	cancelTransfer: (id: string) => void
 	waitElapsed: number | null
+	fallbackSpeed: number
+	canReveal: boolean
 }): JSX.Element {
 	const onCancel = useCallback(() => cancelTransfer(id), [cancelTransfer, id])
 	const onRetry = useCallback(() => void window.conduit.transfer.retry(id), [id])
-	return <TransferRow item={item} onCancel={onCancel} onRetry={onRetry} waitElapsed={waitElapsed} />
+	const onReveal = useCallback(() => void window.conduit.fs.revealFile(item.dest.path), [item.dest.path])
+	return <TransferRow item={item} onCancel={onCancel} onRetry={onRetry} waitElapsed={waitElapsed} fallbackSpeed={fallbackSpeed} canReveal={canReveal} onReveal={onReveal} />
 }
 
-const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitElapsed }: {
+const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitElapsed, fallbackSpeed, canReveal, onReveal }: {
 	item: TransferItem
 	onCancel: () => void
 	onRetry: () => void
 	waitElapsed: number | null
+	fallbackSpeed: number
+	canReveal: boolean
+	onReveal: () => void
 }): JSX.Element {
 	const pct = item.bytesTotal > 0 ? Math.round((item.bytesDone / item.bytesTotal) * 100) : item.status === 'done' ? 100 : 0
 	const isOp = item.kind === 'operation'
@@ -412,7 +427,7 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 						{item.status === 'transferring'
 							? isWaiting
 								? `Waiting for server${waitElapsed >= 1000 ? ` · ${formatDuration(waitElapsed)}` : ''}`
-								: formatSpeed(item.speed)
+								: formatSpeed(item.speed ?? fallbackSpeed)
 							: item.status === 'queued'
 								? '—'
 								: `${pct}%`}
@@ -421,6 +436,11 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 			)}
 			{item.status === 'error' && !isOp && (
 				<button className="iconbtn retry-btn" title="Retry" onClick={onRetry}>↺</button>
+			)}
+			{canReveal && (
+				<button className="iconbtn reveal-btn" title="Reveal in Finder" onClick={onReveal}>
+					<span className="material-symbols-outlined">folder_open</span>
+				</button>
 			)}
 			<button
 				className="iconbtn"

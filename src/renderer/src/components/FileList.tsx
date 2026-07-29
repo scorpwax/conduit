@@ -357,6 +357,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
         onClick: () => pane.connectionId && window.conduit.fs.preview(pane.connectionId, entry.path)
       })
     }
+    const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
+    const isLocalConn = pane.connectionId === BUILTIN_LOCAL_ID || connType === 'local'
+    if (isLocalConn && window.conduit.platform === 'darwin') {
+      items.push({
+        label: 'Reveal in Finder',
+        onClick: () => void window.conduit.fs.revealFile(entry.path)
+      })
+    }
     items.push({ label: 'Open in New Pane', onClick: () => doOpenInNewPane(entry) })
     items.push({ label: 'Copy', onClick: () => doCopy(entry) })
     items.push({ label: 'Paste', disabled: !clipboard, onClick: () => void pasteInto(pane.id) })
@@ -613,7 +621,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                     className="btn ghost"
                     onClick={() => {
                       const text = buildTreeText(treeEntry.name, treeResult)
-                      void window.conduit.logs.exportText(text)
+                      void window.conduit.logs.exportFileTree(text)
                     }}
                   >
                     Export as .txt

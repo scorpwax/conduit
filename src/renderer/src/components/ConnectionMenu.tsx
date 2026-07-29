@@ -17,21 +17,16 @@ interface Props {
 export function ConnectionMenu({ paneId, onClose, onAddNew, onEdit, onImport }: Props): JSX.Element {
 	const ref = useRef<HTMLDivElement>(null)
 	const connections = useStore((s) => s.connections)
-	const drives = useStore((s) => s.drives)
-	const bookmarks = useStore((s) => s.bookmarks)
 	const panes = useStore((s) => s.panes)
 	const backgroundConnectionIds = useStore((s) => s.backgroundConnectionIds)
 	const setPaneConnection = useStore((s) => s.setPaneConnection)
 	const openLocation = useStore((s) => s.openLocation)
 	const toggleFavorite = useStore((s) => s.toggleFavorite)
 	const deleteConnection = useStore((s) => s.deleteConnection)
-	const removeBookmark = useStore((s) => s.removeBookmark)
 	const openInNewPane = useStore((s) => s.openInNewPane)
 	const addBookmark = useStore((s) => s.addBookmark)
 
-	const [ctx, setCtx] = useState<{ x: number; y: number; connectionId: string; path: string; name: string } | null>(
-		null
-	)
+	const [ctx, setCtx] = useState<{ x: number; y: number; connectionId: string; path: string; name: string } | null>(null)
 
 	useEffect(() => {
 		function onDoc(e: MouseEvent): void {
@@ -59,16 +54,6 @@ export function ConnectionMenu({ paneId, onClose, onAddNew, onEdit, onImport }: 
 
 	function pickConnection(id: string): void {
 		void setPaneConnection(paneId, id)
-		onClose()
-	}
-
-	function pickDrive(path: string): void {
-		void openLocation(paneId, BUILTIN_LOCAL_ID, path)
-		onClose()
-	}
-
-	function openBookmark(connectionId: string, path: string): void {
-		void openLocation(paneId, connectionId, path)
 		onClose()
 	}
 
@@ -119,7 +104,8 @@ export function ConnectionMenu({ paneId, onClose, onAddNew, onEdit, onImport }: 
 			{others.length > 0 && (
 				<>
 					<div className="menu-sep" />
-					{favorites.length === 0 && <div className="menu-label">Connections</div>}
+					<div className="menu-label">Connections</div>
+					{favorites.length === 0 && <div className="menu-label">Active Connections</div>}
 					{others.map((c) => (
 						<ConnRow
 							key={c.id}
@@ -134,49 +120,6 @@ export function ConnectionMenu({ paneId, onClose, onAddNew, onEdit, onImport }: 
 					))}
 				</>
 			)}
-
-			{bookmarks.length > 0 && (
-				<>
-					<div className="menu-sep" />
-					<div className="menu-label">Favorite Folders</div>
-					{bookmarks.map((b) => (
-						<div key={b.id} className="menu-item" onClick={() => openBookmark(b.connectionId, b.path)}>
-							<ConnIcon type={b.connectionType} />
-							<div className="mi-title">
-								<div className="name">⭐ {b.name}</div>
-								<div className="sub">{b.path || '/'}</div>
-							</div>
-							<span
-								className="star"
-								title="Remove favorite"
-								onClick={(e) => {
-									e.stopPropagation()
-									void removeBookmark(b.id)
-								}}
-							>
-								✕
-							</span>
-						</div>
-					))}
-				</>
-			)}
-
-			<div className="menu-sep" />
-			<div className="menu-label">Drives</div>
-			{drives.map((d) => (
-				<div
-					key={d.path}
-					className="menu-item"
-					onClick={() => pickDrive(d.path)}
-					onContextMenu={(e) => openCtx(e, BUILTIN_LOCAL_ID, d.path, d.name)}
-				>
-					<ConnIcon type="local" />
-					<div className="mi-title">
-						<div className="name">{d.name}</div>
-						<div className="sub">{d.path}</div>
-					</div>
-				</div>
-			))}
 
 			<div className="menu-sep" />
 			<div

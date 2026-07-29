@@ -12,6 +12,20 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.18.0] — 2026-07-29
+
+### Added
+- **Reveal in Finder** — right-click any file in a local pane to reveal it in Finder (macOS). Completed downloads in the Transfer panel also show a folder icon button to reveal the file immediately after transfer.
+- **File Tree export** — "Export as .txt" in the File Tree view now saves as `File Tree YYYY-MM-DD.txt` instead of the activity log name.
+
+### Fixed
+- **Frame.io duplicate workspaces** — accounts with multiple workspaces sharing the same name now display as "Name", "Name (2)", etc. instead of colliding in the cache and navigating to the wrong workspace.
+- **Transfer speed display** — aggregate speed in the Transfer panel header now shows reliably during all transfers using a renderer-side sample buffer, with per-file speed as a fallback.
+
+### Changed
+- **Frame.io icon & color** — updated to the official signal/broadcast waves logo on a `#5A52FF` background.
+- **Connection menu** — removed Drives and Favorite Folders sections; menu now shows New Connection, Favorites, Active Connections, and Import Connection.
+
 ## [1.17.0] — 2026-07-29
 
 ### Added

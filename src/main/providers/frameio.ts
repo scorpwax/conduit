@@ -120,7 +120,6 @@ export class FrameIoProvider implements Provider {
     if (this.accountId) return this.accountId
     const res = await this.req<FioResponse<FioAccount[]>>('GET', '/v4/accounts')
     const accounts = res.data
-    console.log('[frameio] /v4/accounts raw:', JSON.stringify(res))
     if (!accounts || accounts.length === 0) throw new Error('No Frame.io accounts found for this user')
     this.accountId = accounts[0].id
     return this.accountId
@@ -153,10 +152,14 @@ export class FrameIoProvider implements Provider {
     // Root: list all workspaces (paginated — accounts can have hundreds)
     if (parts.length === 0) {
       const workspaces = await this.reqAll<FioWorkspace>(`/v4/accounts/${accountId}/workspaces`)
-      console.log(`[frameio] accountId=${accountId} workspace count=${workspaces.length} first3=`, JSON.stringify(workspaces.slice(0, 3)))
+      // Deduplicate workspace names: if two workspaces share a name, append (2), (3), etc.
+      const nameCounts = new Map<string, number>()
       const entries: FileEntry[] = workspaces.map(ws => {
-        this.nodes.set(ws.name, { id: ws.id, kind: 'workspace' })
-        return { name: ws.name, path: ws.name, kind: 'directory', size: 0, modified: ws.updated_at ?? null }
+        const count = (nameCounts.get(ws.name) ?? 0) + 1
+        nameCounts.set(ws.name, count)
+        const displayName = count === 1 ? ws.name : `${ws.name} (${count})`
+        this.nodes.set(displayName, { id: ws.id, kind: 'workspace' })
+        return { name: displayName, path: displayName, kind: 'directory', size: 0, modified: ws.updated_at ?? null }
       })
       return { path: '', entries }
     }
@@ -174,10 +177,15 @@ export class FrameIoProvider implements Provider {
         this.nodes.set(parts[0], { id: wsId, kind: 'workspace' })
       }
       const projects = await this.reqAll<FioProject>(`/v4/accounts/${accountId}/workspaces/${wsId}/projects`)
+      // Deduplicate project names within this workspace
+      const projNameCounts = new Map<string, number>()
       const entries: FileEntry[] = projects.map(proj => {
-        const projPath = `${parts[0]}/${proj.name}`
+        const count = (projNameCounts.get(proj.name) ?? 0) + 1
+        projNameCounts.set(proj.name, count)
+        const displayName = count === 1 ? proj.name : `${proj.name} (${count})`
+        const projPath = `${parts[0]}/${displayName}`
         this.nodes.set(projPath, { id: proj.id, kind: 'project', rootFolderId: proj.root_folder_id })
-        return { name: proj.name, path: projPath, kind: 'directory', size: 0, modified: proj.updated_at ?? null }
+        return { name: displayName, path: projPath, kind: 'directory', size: 0, modified: proj.updated_at ?? null }
       })
       return { path: p, entries }
     }
