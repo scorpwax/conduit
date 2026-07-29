@@ -12,11 +12,11 @@ import { listDrives } from './drives'
 import { mountS3, unmountAll } from './rclone'
 import { transferEngine } from './transfer/engine'
 import { previewFile } from './preview'
-import { runOAuth } from './oauth'
+import { runOAuth, runOAuthCustomScheme, handleCustomSchemeCallback } from './oauth'
 import { GOOGLE_OAUTH } from './providers/gdrive'
 import { MICROSOFT_OAUTH } from './providers/onedrive'
 import { DROPBOX_OAUTH } from './providers/dropbox'
-import { FRAMEIO_OAUTH } from './providers/frameio'
+import { FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI, FRAMEIO_PROTOCOL_SCHEME } from './providers/frameio'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -182,7 +182,7 @@ function registerIpc(): void {
       try {
         // Frame.io has a baked-in client ID — run OAuth directly without user-supplied credentials.
         if (args.type === 'frameio') {
-          const tokens = await runOAuth(FRAMEIO_OAUTH)
+          const tokens = await runOAuthCustomScheme(FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI)
           if (!tokens.refreshToken) {
             return { ok: false, message: 'Authorized, but no refresh token returned. Try revoking app access in Adobe and re-authorizing.' }
           }
@@ -626,6 +626,29 @@ function registerIpc(): void {
 if (!app.isPackaged && process.platform === 'darwin') {
   app.commandLine.appendSwitch('use-angle', 'metal')
 }
+
+// Register Adobe's custom URI scheme so the OS delivers OAuth callbacks to this app.
+// Must be called before app.whenReady() to take effect on first launch.
+app.setAsDefaultProtocolClient(FRAMEIO_PROTOCOL_SCHEME)
+
+// macOS delivers custom-scheme URLs via open-url (even when the app is already running).
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  if (url.startsWith(FRAMEIO_PROTOCOL_SCHEME + '://')) {
+    handleCustomSchemeCallback(url)
+  }
+})
+
+// Windows delivers the URL as a second-instance argv when the app is already running.
+app.on('second-instance', (_event, argv) => {
+  const url = argv.find((arg) => arg.startsWith(FRAMEIO_PROTOCOL_SCHEME + '://'))
+  if (url) handleCustomSchemeCallback(url)
+  // Re-focus the main window.
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+})
 
 app.whenReady().then(async () => {
   // In dev, show the real app icon in the Dock (packaged builds get it from the

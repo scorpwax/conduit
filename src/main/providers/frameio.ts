@@ -12,12 +12,17 @@ const IMS = 'https://ims-na1.adobelogin.com'
 const CLIENT_ID = '446d21ea546a4b50aa23260fc640f957'
 
 // Adobe IMS OAuth for Frame.io V4.
-// Prerequisite: http://127.0.0.1 must be added as an allowed Redirect URI in the
-// Adobe Developer Console project (Credentials → OAuth Native App → Redirect URI).
+// Adobe Native App OAuth uses a custom URI scheme as the redirect.
+// The scheme is auto-generated from the client ID by Adobe Dev Console.
+// Conduit registers this scheme via app.setAsDefaultProtocolClient() on startup.
+const ADOBE_SCHEME = 'adobe+c81c5be5270ca150347419700136d254c630836d'
+export const FRAMEIO_REDIRECT_URI = `${ADOBE_SCHEME}://adobeid/${CLIENT_ID}`
+export const FRAMEIO_PROTOCOL_SCHEME = ADOBE_SCHEME
+
 export const FRAMEIO_OAUTH: OAuthProviderConfig = {
   authUrl: `${IMS}/ims/authorize/v2`,
   tokenUrl: `${IMS}/ims/token/v3`,
-  // Adobe IMS uses comma-separated scopes (not space-separated).
+  // Adobe IMS uses comma-separated scopes as a single string (not space-separated).
   scopes: ['openid,AdobeID,offline_access,frame_io_api'],
   clientId: CLIENT_ID
 }

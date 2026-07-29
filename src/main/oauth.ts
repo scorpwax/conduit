@@ -2,6 +2,102 @@ import { createServer } from 'http'
 import { createHash, randomBytes } from 'crypto'
 import { shell } from 'electron'
 
+// ─── Custom-scheme OAuth (Adobe IMS / Frame.io) ──────────────────────────────
+
+/**
+ * Module-level pending callback. Set before opening the browser; cleared when
+ * the OS delivers the deep-link back to the app via app.on('open-url').
+ */
+let pendingSchemeCallback: ((url: string) => void) | null = null
+
+/**
+ * Called from the main-process open-url handler to route Adobe OAuth callbacks.
+ * Pass the full URL string received from the OS.
+ */
+export function handleCustomSchemeCallback(url: string): void {
+  if (pendingSchemeCallback) {
+    pendingSchemeCallback(url)
+    pendingSchemeCallback = null
+  }
+}
+
+function waitForSchemeCallback(): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingSchemeCallback = null
+      reject(new Error('OAuth timeout — no response after 5 minutes'))
+    }, 5 * 60 * 1000)
+
+    pendingSchemeCallback = (url: string) => {
+      clearTimeout(timeout)
+      try {
+        const parsed = new URL(url)
+        const code = parsed.searchParams.get('code')
+        const error = parsed.searchParams.get('error')
+        if (error) reject(new Error(error))
+        else if (code) resolve(code)
+        else reject(new Error('No authorization code in callback URL'))
+      } catch (e) {
+        reject(new Error(`Failed to parse callback URL: ${String(e)}`))
+      }
+    }
+  })
+}
+
+/**
+ * OAuth 2.0 PKCE flow using a custom URI scheme redirect (e.g. adobe+hash://).
+ * The OS delivers the redirect back to the app via app.on('open-url') on macOS
+ * or via argv on Windows — the caller must wire handleCustomSchemeCallback().
+ */
+export async function runOAuthCustomScheme(
+  cfg: OAuthProviderConfig,
+  redirectUri: string
+): Promise<OAuthTokens> {
+  const verifier = base64url(randomBytes(32))
+  const challenge = base64url(createHash('sha256').update(verifier).digest())
+
+  const authUrl = new URL(cfg.authUrl)
+  authUrl.searchParams.set('client_id', cfg.clientId)
+  authUrl.searchParams.set('redirect_uri', redirectUri)
+  authUrl.searchParams.set('response_type', 'code')
+  authUrl.searchParams.set('scope', cfg.scopes.join(' '))
+  authUrl.searchParams.set('code_challenge', challenge)
+  authUrl.searchParams.set('code_challenge_method', 'S256')
+  for (const [k, v] of Object.entries(cfg.extraAuthParams ?? {})) {
+    authUrl.searchParams.set(k, v)
+  }
+
+  const codePromise = waitForSchemeCallback()
+  await shell.openExternal(authUrl.toString())
+  const code = await codePromise
+
+  const body = new URLSearchParams({
+    client_id: cfg.clientId,
+    code,
+    code_verifier: verifier,
+    grant_type: 'authorization_code',
+    redirect_uri: redirectUri
+  })
+  if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret)
+
+  const res = await fetch(cfg.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
+  })
+  if (!res.ok) throw new Error(`Token exchange failed (${res.status}): ${await res.text()}`)
+  const json = (await res.json()) as {
+    access_token: string
+    refresh_token?: string
+    expires_in?: number
+  }
+  return {
+    accessToken: json.access_token,
+    refreshToken: json.refresh_token,
+    expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000
+  }
+}
+
 /**
  * Generic OAuth 2.0 Authorization Code + PKCE flow for desktop apps.
  *
