@@ -36,7 +36,7 @@ interface CacheNode {
 }
 
 /** Common structure Frame.io wraps all responses in. */
-interface FioResponse<T> { data: T }
+interface FioResponse<T> { data: T; links?: { next?: string } }
 
 interface FioAsset {
   id: string
@@ -52,7 +52,7 @@ interface FioAsset {
 }
 
 interface FioWorkspace { id: string; name: string; updated_at?: string }
-interface FioProject { id: string; name: string; root_asset_id?: string; updated_at?: string }
+interface FioProject { id: string; name: string; root_folder_id?: string; updated_at?: string }
 interface FioMe { id: string; email?: string; name?: string }
 interface FioAccount { id: string; display_name?: string; roles?: string[] }
 
@@ -124,6 +124,19 @@ export class FrameIoProvider implements Provider {
     return this.accountId
   }
 
+  /** Fetch all pages of a paginated list endpoint, following links.next cursors. */
+  private async reqAll<T>(basePath: string): Promise<T[]> {
+    const results: T[] = []
+    let next: string | null = `${basePath}${basePath.includes('?') ? '&' : '?'}page_size=100`
+    while (next) {
+      const page: FioResponse<T[]> = await this.req<FioResponse<T[]>>('GET', next)
+      if (Array.isArray(page.data)) results.push(...page.data)
+      const cursor = page.links?.next
+      next = cursor && cursor !== next ? cursor : null
+    }
+    return results
+  }
+
   private norm(path: string): string {
     return (path || '').replace(/^\/+|\/+$/g, '')
   }
@@ -133,12 +146,10 @@ export class FrameIoProvider implements Provider {
     const accountId = await this.getAccountId()
     const parts = p ? p.split('/') : []
 
-    // Root: list workspaces
+    // Root: list all workspaces (paginated — accounts can have hundreds)
     if (parts.length === 0) {
-      const res = await this.req<FioResponse<FioWorkspace[]>>(
-        'GET', `/v4/accounts/${accountId}/workspaces?page_size=50`
-      )
-      const entries: FileEntry[] = res.data.map(ws => {
+      const workspaces = await this.reqAll<FioWorkspace>(`/v4/accounts/${accountId}/workspaces`)
+      const entries: FileEntry[] = workspaces.map(ws => {
         this.nodes.set(ws.name, { id: ws.id, kind: 'workspace' })
         return { name: ws.name, path: ws.name, kind: 'directory', size: 0, modified: ws.updated_at ?? null }
       })
@@ -147,24 +158,20 @@ export class FrameIoProvider implements Provider {
 
     const node = this.nodes.get(p)
 
-    // Workspace level: list projects
+    // Workspace level: list all projects (paginated)
     if (parts.length === 1 || node?.kind === 'workspace') {
       let wsId = node?.id
       if (!wsId) {
-        const ws = await this.req<FioResponse<FioWorkspace[]>>(
-          'GET', `/v4/accounts/${accountId}/workspaces?page_size=50`
-        )
-        const found = ws.data.find(w => w.name === parts[0])
+        const workspaces = await this.reqAll<FioWorkspace>(`/v4/accounts/${accountId}/workspaces`)
+        const found = workspaces.find(w => w.name === parts[0])
         if (!found) throw new Error(`Workspace not found: ${parts[0]}`)
         wsId = found.id
         this.nodes.set(parts[0], { id: wsId, kind: 'workspace' })
       }
-      const res = await this.req<FioResponse<FioProject[]>>(
-        'GET', `/v4/accounts/${accountId}/workspaces/${wsId}/projects?page_size=100`
-      )
-      const entries: FileEntry[] = res.data.map(proj => {
+      const projects = await this.reqAll<FioProject>(`/v4/accounts/${accountId}/workspaces/${wsId}/projects`)
+      const entries: FileEntry[] = projects.map(proj => {
         const projPath = `${parts[0]}/${proj.name}`
-        this.nodes.set(projPath, { id: proj.id, kind: 'project', rootFolderId: proj.root_asset_id })
+        this.nodes.set(projPath, { id: proj.id, kind: 'project', rootFolderId: proj.root_folder_id })
         return { name: proj.name, path: projPath, kind: 'directory', size: 0, modified: proj.updated_at ?? null }
       })
       return { path: p, entries }
@@ -176,7 +183,7 @@ export class FrameIoProvider implements Provider {
         const proj = await this.req<FioResponse<FioProject>>(
           'GET', `/v4/accounts/${accountId}/projects/${node.id}`
         )
-        node.rootFolderId = proj.data.root_asset_id
+        node.rootFolderId = proj.data.root_folder_id
         if (!node.rootFolderId) throw new Error(`No root folder found for project: ${p}`)
       }
       return this.listFolder(p, accountId, node.rootFolderId)
@@ -196,10 +203,8 @@ export class FrameIoProvider implements Provider {
   }
 
   private async listFolder(parentPath: string, accountId: string, folderId: string): Promise<ListResult> {
-    const res = await this.req<FioResponse<FioAsset[]>>(
-      'GET', `/v4/accounts/${accountId}/folders/${folderId}/children?page_size=100`
-    )
-    const entries: FileEntry[] = res.data.map(asset => {
+    const assets = await this.reqAll<FioAsset>(`/v4/accounts/${accountId}/folders/${folderId}/children`)
+    const entries: FileEntry[] = assets.map(asset => {
       const assetPath = `${parentPath}/${asset.name}`
       this.nodes.set(assetPath, { id: asset.id, kind: asset.type === 'folder' ? 'folder' : 'file' })
       return {
