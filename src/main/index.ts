@@ -12,7 +12,7 @@ import { listDrives } from './drives'
 import { mountS3, unmountAll } from './rclone'
 import { transferEngine } from './transfer/engine'
 import { previewFile } from './preview'
-import { runOAuth, runOAuthCustomScheme, handleCustomSchemeCallback } from './oauth'
+import { runOAuth, runOAuthInWindow, handleCustomSchemeCallback } from './oauth'
 import { GOOGLE_OAUTH } from './providers/gdrive'
 import { MICROSOFT_OAUTH } from './providers/onedrive'
 import { DROPBOX_OAUTH } from './providers/dropbox'
@@ -182,7 +182,7 @@ function registerIpc(): void {
       try {
         // Frame.io has a baked-in client ID — run OAuth directly without user-supplied credentials.
         if (args.type === 'frameio') {
-          const tokens = await runOAuthCustomScheme(FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI)
+          const tokens = await runOAuthInWindow(FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI)
           if (!tokens.refreshToken) {
             return { ok: false, message: 'Authorized, but no refresh token returned. Try revoking app access in Adobe and re-authorizing.' }
           }
