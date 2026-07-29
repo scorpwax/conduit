@@ -53,7 +53,8 @@ interface FioAsset {
 
 interface FioWorkspace { id: string; name: string; updated_at?: string }
 interface FioProject { id: string; name: string; root_asset_id?: string; updated_at?: string }
-interface FioMe { id: string; email?: string; name?: string; account_id?: string }
+interface FioMe { id: string; email?: string; name?: string }
+interface FioAccount { id: string; display_name?: string; roles?: string[] }
 
 const MIME: Record<string, string> = {
   mp4: 'video/mp4', mov: 'video/quicktime', mxf: 'application/mxf',
@@ -116,11 +117,11 @@ export class FrameIoProvider implements Provider {
 
   private async getAccountId(): Promise<string> {
     if (this.accountId) return this.accountId
-    const res = await this.req<FioResponse<FioMe>>('GET', '/v4/me')
-    const id = res.data.account_id
-    if (!id) throw new Error('Could not determine Frame.io account ID from /v4/me')
-    this.accountId = id
-    return id
+    const res = await this.req<FioResponse<FioAccount[]>>('GET', '/v4/accounts')
+    const accounts = res.data
+    if (!accounts || accounts.length === 0) throw new Error('No Frame.io accounts found for this user')
+    this.accountId = accounts[0].id
+    return this.accountId
   }
 
   private norm(path: string): string {
