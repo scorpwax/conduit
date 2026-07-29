@@ -22,8 +22,8 @@ export const FRAMEIO_PROTOCOL_SCHEME = ADOBE_SCHEME
 export const FRAMEIO_OAUTH: OAuthProviderConfig = {
   authUrl: `${IMS}/ims/authorize/v2`,
   tokenUrl: `${IMS}/ims/token/v3`,
-  // Adobe IMS uses comma-separated scopes as a single string (not space-separated).
-  scopes: ['openid,AdobeID,offline_access,frame_io_api'],
+  // Match the scopes configured in the Adobe Dev Console credential exactly.
+  scopes: ['openid,offline_access,profile,email,additional_info.roles'],
   clientId: CLIENT_ID
 }
 
