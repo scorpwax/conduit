@@ -101,7 +101,8 @@ export class FrameIoProvider implements Provider {
 
   private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
     const tok = await this.token()
-    const res = await fetch(`${API}${path}`, {
+    const url = path.startsWith('http') ? path : `${API}${path}`
+    const res = await fetch(url, {
       method,
       headers: {
         Authorization: `Bearer ${tok}`,
@@ -131,7 +132,9 @@ export class FrameIoProvider implements Provider {
     while (next) {
       const page: FioResponse<T[]> = await this.req<FioResponse<T[]>>('GET', next)
       if (Array.isArray(page.data)) results.push(...page.data)
-      const cursor = page.links?.next
+      // links.next may be an absolute URL — strip the API base so req() can prepend it.
+      const raw = page.links?.next ?? null
+      const cursor = raw ? raw.replace(/^https?:\/\/api\.frame\.io/, '') : null
       next = cursor && cursor !== next ? cursor : null
     }
     return results
