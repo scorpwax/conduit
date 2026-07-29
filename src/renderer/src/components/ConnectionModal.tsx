@@ -33,7 +33,8 @@ const TYPES: { type: ConnectionType; name: string; sub: string; enabled: boolean
   { type: 'webdav', name: 'WebDAV', sub: 'Nextcloud, ownCloud, Box…', enabled: true },
   { type: 'gdrive', name: 'Google Drive', sub: 'via your OAuth app', enabled: true },
   { type: 'onedrive', name: 'OneDrive', sub: 'Microsoft 365', enabled: true },
-  { type: 'dropbox', name: 'Dropbox', sub: 'via your OAuth app', enabled: true }
+  { type: 'dropbox', name: 'Dropbox', sub: 'via your OAuth app', enabled: true },
+  { type: 'frameio', name: 'Frame.io', sub: 'Adobe Frame.io V4', enabled: true }
 ]
 
 // Suggested regions across AWS and common S3-compatible providers (Wasabi, etc.).
@@ -134,18 +135,20 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
   const [wdPassword, setWdPassword] = useState('')
   const [wdRoot, setWdRoot] = useState(wdCfg.rootPath ?? '')
 
-  // OAuth cloud providers (Google Drive, OneDrive, Dropbox) — shared state.
+  // OAuth cloud providers (Google Drive, OneDrive, Dropbox, Frame.io) — shared state.
   const oauthCfg = (defaults?.config ?? {}) as OAuthConfig
   const [oauthClientId, setOauthClientId] = useState(oauthCfg.clientId ?? '')
   const [oauthClientSecret, setOauthClientSecret] = useState('')
   const [oauthRefreshToken, setOauthRefreshToken] = useState('')
   // Editing an existing (not imported) cloud connection implies it was already authorized.
   const [oauthAuthorized, setOauthAuthorized] = useState(
-    !!existing && ['gdrive', 'onedrive', 'dropbox'].includes(existing?.type ?? '')
+    !!existing && ['gdrive', 'onedrive', 'dropbox', 'frameio'].includes(existing?.type ?? '')
   )
 
-  const isOAuth = type === 'gdrive' || type === 'onedrive' || type === 'dropbox'
-  // Only Google's desktop client requires a client secret; MS/Dropbox use PKCE public clients.
+  const isOAuth = type === 'gdrive' || type === 'onedrive' || type === 'dropbox' || type === 'frameio'
+  // Frame.io uses a baked-in client ID — no user-supplied credentials required.
+  const isFrameIo = type === 'frameio'
+  // Only Google's desktop client requires a client secret; MS/Dropbox/Frame.io use PKCE public clients.
   const oauthNeedsSecret = type === 'gdrive'
 
   function buildConnection(): Connection {
@@ -216,6 +219,11 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
         password: wdPassword,
         rootPath: wdRoot.trim() || undefined
       } satisfies WebdavConfig
+    } else if (isFrameIo) {
+      base.config = {
+        // Frame.io uses a baked-in client ID; only the refresh token is stored.
+        refreshToken: oauthRefreshToken
+      }
     } else if (isOAuth) {
       base.config = {
         clientId: oauthClientId.trim(),
@@ -244,6 +252,7 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
     if (type === 'gdrive') return 'Google Drive'
     if (type === 'onedrive') return 'OneDrive'
     if (type === 'dropbox') return 'Dropbox'
+    if (type === 'frameio') return 'Frame.io'
     return 'Connection'
   }
 
@@ -316,7 +325,9 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
               ? !!(ftpHost.trim() && ftpUser.trim())
               : type === 'webdav'
                 ? !!(wdUrl.trim() && wdUser.trim())
-                : isOAuth
+                : isFrameIo
+                  ? !!(oauthRefreshToken || existing)
+                  : isOAuth
                   ? !!(oauthClientId.trim() && (oauthRefreshToken || existing))
                   : false
 
@@ -745,22 +756,24 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
 
         {isOAuth && (
           <>
-            <div className="field">
-              <label>Client ID</label>
-              <input
-                value={oauthClientId}
-                onChange={(e) => setOauthClientId(e.target.value)}
-                placeholder={
-                  type === 'gdrive'
-                    ? 'xxxxx.apps.googleusercontent.com'
-                    : type === 'onedrive'
-                      ? 'Application (client) ID'
-                      : 'Dropbox app key'
-                }
-                autoComplete="off"
-              />
-              <div className="hint">{oauthHint(type)}</div>
-            </div>
+            {!isFrameIo && (
+              <div className="field">
+                <label>Client ID</label>
+                <input
+                  value={oauthClientId}
+                  onChange={(e) => setOauthClientId(e.target.value)}
+                  placeholder={
+                    type === 'gdrive'
+                      ? 'xxxxx.apps.googleusercontent.com'
+                      : type === 'onedrive'
+                        ? 'Application (client) ID'
+                        : 'Dropbox app key'
+                  }
+                  autoComplete="off"
+                />
+                <div className="hint">{oauthHint(type)}</div>
+              </div>
+            )}
             {oauthNeedsSecret && (
               <div className="field">
                 <label>Client Secret</label>
@@ -773,10 +786,15 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
                 />
               </div>
             )}
+            {isFrameIo && (
+              <div className="hint" style={{ marginBottom: 8 }}>
+                Signs in with your Adobe ID — no credentials to enter. Any Frame.io V4 account works.
+              </div>
+            )}
             <div className="field">
               <button
                 className={`btn ${oauthAuthorized ? '' : 'primary'}`}
-                disabled={busy || !oauthClientId.trim() || (oauthNeedsSecret && !oauthClientSecret && !existing)}
+                disabled={busy || (!isFrameIo && !oauthClientId.trim()) || (oauthNeedsSecret && !oauthClientSecret && !existing)}
                 onClick={handleAuthorize}
               >
                 {busy
@@ -826,9 +844,9 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
 
 
 function oauthHint(type: ConnectionType): string {
-  if (type === 'gdrive') return 'From an OAuth “Desktop app” client in Google Cloud (yours or your admin’s).'
-  if (type === 'onedrive')
-    return 'From an app registered in Microsoft Entra (Azure AD) as a public/desktop client.'
+  if (type === 'gdrive') return "From an OAuth \"Desktop app\" client in Google Cloud (yours or your admin's)."
+  if (type === 'onedrive') return 'From an app registered in Microsoft Entra (Azure AD) as a public/desktop client.'
   if (type === 'dropbox') return 'The App key from an app created at dropbox.com/developers (PKCE, no secret needed).'
+  if (type === 'frameio') return ''
   return ''
 }

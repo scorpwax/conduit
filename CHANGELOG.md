@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.17.0] — 2026-07-29
+
+### Added
+- **Frame.io integration** — connect to Adobe Frame.io V4 as a full pane in Conduit. Sign in with any Adobe ID via OAuth (no credentials to enter — the app handles the flow). Browse workspaces, projects, and folders; transfer files to and from Frame.io and any other connection (local, Wasabi S3, external drives, etc.). Supports upload, download, mkdir, rename, and delete.
+
 ## [1.16.0] — 2026-07-23
 
 ### Added

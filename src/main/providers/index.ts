@@ -10,6 +10,7 @@ import { WebdavProvider } from './webdav'
 import { GoogleDriveProvider } from './gdrive'
 import { OneDriveProvider } from './onedrive'
 import { DropboxProvider } from './dropbox'
+import { FrameIoProvider } from './frameio'
 import { connectionStore } from '../store'
 
 export type { Provider } from './types'
@@ -46,6 +47,8 @@ export function createProvider(conn: Connection): Provider {
       return new OneDriveProvider(conn)
     case 'dropbox':
       return new DropboxProvider(conn)
+    case 'frameio':
+      return new FrameIoProvider(conn)
     default:
       throw new Error(`Unsupported connection type: ${conn.type}`)
   }

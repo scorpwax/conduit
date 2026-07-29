@@ -11,6 +11,7 @@ export type ConnectionType =
   | 'gdrive'
   | 'onedrive'
   | 'dropbox'
+  | 'frameio'
 
 /** Type-specific configuration for each kind of connection. */
 export interface LocalConfig {
@@ -92,6 +93,11 @@ export interface OAuthConfig {
   rootPath?: string
 }
 
+export interface FrameIoConfig {
+  /** Adobe IMS refresh token from OAuth (encrypted at rest). */
+  refreshToken?: string
+}
+
 export type ConnectionConfig =
   | LocalConfig
   | S3Config
@@ -100,6 +106,7 @@ export type ConnectionConfig =
   | FtpConfig
   | WebdavConfig
   | OAuthConfig
+  | FrameIoConfig
   | Record<string, unknown>
 
 /** A saved connection the user can reconnect to. */

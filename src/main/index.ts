@@ -16,6 +16,7 @@ import { runOAuth } from './oauth'
 import { GOOGLE_OAUTH } from './providers/gdrive'
 import { MICROSOFT_OAUTH } from './providers/onedrive'
 import { DROPBOX_OAUTH } from './providers/dropbox'
+import { FRAMEIO_OAUTH } from './providers/frameio'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -179,6 +180,14 @@ function registerIpc(): void {
       args: { type: string; clientId: string; clientSecret?: string }
     ): Promise<{ ok: boolean; refreshToken?: string; message?: string }> => {
       try {
+        // Frame.io has a baked-in client ID — run OAuth directly without user-supplied credentials.
+        if (args.type === 'frameio') {
+          const tokens = await runOAuth(FRAMEIO_OAUTH)
+          if (!tokens.refreshToken) {
+            return { ok: false, message: 'Authorized, but no refresh token returned. Try revoking app access in Adobe and re-authorizing.' }
+          }
+          return { ok: true, refreshToken: tokens.refreshToken }
+        }
         const base =
           args.type === 'gdrive'
             ? GOOGLE_OAUTH

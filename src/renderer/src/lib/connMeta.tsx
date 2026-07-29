@@ -19,6 +19,7 @@ export const CONN_COLORS: Record<ConnectionType, string> = {
   gdrive:   '#4285f4', // Google blue
   onedrive: '#0078d4', // Microsoft blue
   dropbox:  '#0061ff', // Dropbox blue
+  frameio:  '#1f1f1f', // Frame.io black
 }
 
 export function connColor(type: ConnectionType): string {
@@ -161,6 +162,19 @@ function IconOnedrive(): JSX.Element {
   )
 }
 
+/** Frame.io — stylized film-frame "F" mark */
+function IconFrameIo(): JSX.Element {
+  return (
+    <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style={{ ...S, padding: '3px' }}>
+      <rect width="40" height="40" rx="6" fill="#1f1f1f" />
+      <rect x="8" y="8" width="24" height="3" rx="1.5" fill="white" />
+      <rect x="8" y="15" width="16" height="3" rx="1.5" fill="white" />
+      <rect x="8" y="22" width="20" height="3" rx="1.5" fill="white" />
+      <rect x="8" y="29" width="12" height="3" rx="1.5" fill="white" />
+    </svg>
+  )
+}
+
 /** Dropbox — official five-diamond logo */
 function IconDropbox(): JSX.Element {
   return (
@@ -190,10 +204,11 @@ const ICONS: Record<ConnectionType, () => JSX.Element> = {
   gdrive:   IconGdrive,
   onedrive: IconOnedrive,
   dropbox:  IconDropbox,
+  frameio:  IconFrameIo,
 }
 
 // Brand types render their logo on white; others get white icon on colored bg.
-const BRAND_TYPES = new Set<ConnectionType>(['gdrive', 'onedrive', 'dropbox'])
+const BRAND_TYPES = new Set<ConnectionType>(['gdrive', 'onedrive', 'dropbox', 'frameio'])
 
 interface ConnIconProps {
   type: ConnectionType
