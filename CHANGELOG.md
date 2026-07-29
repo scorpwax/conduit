@@ -12,7 +12,7 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
-## [1.19.0] — 2026-07-29
+## [1.18.1] — 2026-07-29
 
 ### Changed
 - **Frame.io upload: sliding-window pipeline** — chunks are now uploaded in parallel as they are read from disk (up to 8 concurrent PUTs), rather than buffering the entire file to memory first and then uploading in batches. This eliminates the extra delay before progress begins on large files and maintains ~30 MB/s+ throughput with lower memory usage.
