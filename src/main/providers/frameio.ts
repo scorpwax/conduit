@@ -120,6 +120,7 @@ export class FrameIoProvider implements Provider {
     if (this.accountId) return this.accountId
     const res = await this.req<FioResponse<FioAccount[]>>('GET', '/v4/accounts')
     const accounts = res.data
+    console.log('[frameio] /v4/accounts raw:', JSON.stringify(res))
     if (!accounts || accounts.length === 0) throw new Error('No Frame.io accounts found for this user')
     this.accountId = accounts[0].id
     return this.accountId
@@ -152,6 +153,7 @@ export class FrameIoProvider implements Provider {
     // Root: list all workspaces (paginated — accounts can have hundreds)
     if (parts.length === 0) {
       const workspaces = await this.reqAll<FioWorkspace>(`/v4/accounts/${accountId}/workspaces`)
+      console.log(`[frameio] accountId=${accountId} workspace count=${workspaces.length} first3=`, JSON.stringify(workspaces.slice(0, 3)))
       const entries: FileEntry[] = workspaces.map(ws => {
         this.nodes.set(ws.name, { id: ws.id, kind: 'workspace' })
         return { name: ws.name, path: ws.name, kind: 'directory', size: 0, modified: ws.updated_at ?? null }
