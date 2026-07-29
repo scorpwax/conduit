@@ -310,30 +310,49 @@ export class FrameIoProvider implements Provider {
     // Cache the new file node
     this.nodes.set(p, { id: fileId, kind: 'file' })
 
-    // Step 2: Stream each chunk to its presigned S3 URL
+    // Step 2: Sliding-window parallel upload.
+    // Read one chunk at a time and immediately dispatch its upload, keeping up
+    // to PARALLEL PUTs in-flight simultaneously. This way uploads start as soon
+    // as the first chunk is read — no need to buffer the entire file first.
+    const PARALLEL = 8
     const reader = new ChunkedReader(body)
-    let bytesWritten = 0
+    const chunkBytes = new Array(uploadUrls.length).fill(0)
+    const inFlight: Promise<void>[] = []
+    let chunkIdx = 0
 
     for (const { url, size: chunkSize } of uploadUrls) {
-      const chunk = await reader.read(chunkSize)
-      if (!chunk || chunk.length === 0) break
+      const data = await reader.read(chunkSize)
+      if (!data || data.length === 0) break
 
-      const res = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': mediaType,
-          'x-amz-acl': 'private',
-          'Content-Length': String(chunk.length)
-        },
-        body: chunk,
-        // @ts-ignore — Node 18 fetch needs duplex for streaming bodies
-        duplex: 'half'
-      })
-      if (!res.ok) throw new Error(`Frame.io upload chunk failed (${res.status}): ${await res.text()}`)
+      const idx = chunkIdx++
+      const upload = (async (chunkData: Buffer, chunkUrl: string, chunkI: number) => {
+        const res = await fetch(chunkUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': mediaType,
+            'x-amz-acl': 'private',
+            'Content-Length': String(chunkData.length)
+          },
+          body: chunkData,
+          // @ts-ignore — Node 18 fetch needs duplex for streaming bodies
+          duplex: 'half'
+        })
+        if (!res.ok) throw new Error(`Frame.io upload chunk ${chunkI} failed (${res.status}): ${await res.text()}`)
+        chunkBytes[chunkI] = chunkData.length
+        if (onProgress) onProgress(chunkBytes.reduce((a, b) => a + b, 0))
+      })(data, url, idx)
 
-      bytesWritten += chunk.length
-      if (onProgress) onProgress(bytesWritten)
+      inFlight.push(upload)
+
+      // Once we hit the concurrency limit, wait for the oldest in-flight upload
+      // to complete before reading (and dispatching) the next chunk.
+      if (inFlight.length >= PARALLEL) {
+        await inFlight.shift()
+      }
     }
+
+    // Drain any remaining in-flight uploads.
+    await Promise.all(inFlight)
   }
 
   async mkdir(path: string): Promise<void> {
