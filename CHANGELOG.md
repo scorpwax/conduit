@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.18.3] — 2026-07-29
+
+### Fixed
+- **Frame.io folder sizes** — fixed two bugs that caused folder size calculation to silently fail: workspace-level nodes were using the wrong ID type, and project nodes without a cached `rootFolderId` fell back to the project ID (also wrong). Both now resolve correctly before walking the folder tree.
+
 ## [1.18.2] — 2026-07-29
 
 ### Added

@@ -410,21 +410,35 @@ export class FrameIoProvider implements Provider {
     this.nodes.set(posix.join(parentPath, newName), node)
   }
 
-  async folderSize(path: string): Promise<{ size: number; latestModified: string | null }> {
+  async folderSize(path: string): Promise<{ size: number; latestModified: string | null } | null> {
     const p = this.norm(path)
     const accountId = await this.getAccountId()
 
-    // Resolve the folder ID for this path, navigating project root if needed.
+    // Resolve the folder ID for this path.
     let node = this.nodes.get(p)
     if (!node) {
       await this.list(p)
       node = this.nodes.get(p)
     }
-    if (!node) return { size: 0, latestModified: null }
+    if (!node) return null
 
-    const folderId = node.kind === 'project'
-      ? (node.rootFolderId ?? node.id)
-      : node.id
+    // Workspaces contain projects, not files — no meaningful size to sum.
+    if (node.kind === 'workspace') return null
+
+    let folderId: string
+    if (node.kind === 'project') {
+      // Mirror list()'s lazy fetch of the root folder ID.
+      if (!node.rootFolderId) {
+        const proj = await this.req<FioResponse<FioProject>>(
+          'GET', `/v4/accounts/${accountId}/projects/${node.id}`
+        )
+        node.rootFolderId = proj.data.root_folder_id
+        if (!node.rootFolderId) return null
+      }
+      folderId = node.rootFolderId
+    } else {
+      folderId = node.id
+    }
 
     // Recursively sum file_size across all descendants via BFS.
     let totalSize = 0
