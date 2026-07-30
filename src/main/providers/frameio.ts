@@ -410,6 +410,46 @@ export class FrameIoProvider implements Provider {
     this.nodes.set(posix.join(parentPath, newName), node)
   }
 
+  async folderSize(path: string): Promise<{ size: number; latestModified: string | null }> {
+    const p = this.norm(path)
+    const accountId = await this.getAccountId()
+
+    // Resolve the folder ID for this path, navigating project root if needed.
+    let node = this.nodes.get(p)
+    if (!node) {
+      await this.list(p)
+      node = this.nodes.get(p)
+    }
+    if (!node) return { size: 0, latestModified: null }
+
+    const folderId = node.kind === 'project'
+      ? (node.rootFolderId ?? node.id)
+      : node.id
+
+    // Recursively sum file_size across all descendants via BFS.
+    let totalSize = 0
+    let latestMs = 0
+    const queue: string[] = [folderId]
+
+    while (queue.length > 0) {
+      const batch = queue.splice(0, 5)
+      await Promise.all(batch.map(async (id) => {
+        const assets = await this.reqAll<FioAsset>(`/v4/accounts/${accountId}/folders/${id}/children`)
+        for (const asset of assets) {
+          if (asset.type === 'folder') {
+            queue.push(asset.id)
+          } else {
+            totalSize += asset.file_size ?? 0
+            const ms = asset.updated_at ? new Date(asset.updated_at).getTime() : 0
+            if (ms > latestMs) latestMs = ms
+          }
+        }
+      }))
+    }
+
+    return { size: totalSize, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
+  }
+
   async exists(path: string): Promise<boolean> {
     const p = this.norm(path)
     if (this.nodes.has(p)) return true

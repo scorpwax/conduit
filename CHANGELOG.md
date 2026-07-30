@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.18.2] — 2026-07-29
+
+### Added
+- **Frame.io folder sizes** — "Calculate All Sizes" and clicking individual folder size cells now works for Frame.io connections. Sizes are computed by recursively walking the Frame.io API (5 folders fetched in parallel per level) and summing `file_size` across all descendants.
+
 ## [1.18.1] — 2026-07-29
 
 ### Changed
