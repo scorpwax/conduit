@@ -47,6 +47,8 @@ interface FioAsset {
   inserted_at?: string
   /** Presigned S3 download URL — present on fully-transcoded files. */
   original?: string
+  /** H.264 proxy download URL — present when original isn't yet available. */
+  h264_720?: string
   /** Upload URLs returned when creating a file placeholder. */
   upload_urls?: Array<{ url: string; size: number }>
 }
@@ -256,8 +258,15 @@ export class FrameIoProvider implements Provider {
     if (!node || node.kind !== 'file') throw new Error(`Not a file: ${p}`)
 
     const res = await this.req<FioResponse<FioAsset>>('GET', `/v4/accounts/${accountId}/files/${node.id}`)
-    const downloadUrl = res.data.original
-    if (!downloadUrl) throw new Error(`"${p}" has no download URL — it may still be processing in Frame.io`)
+    // `original` is the full-res presigned URL. It can be absent for files still
+    // being processed by Frame.io. Retry once after a short delay before giving up.
+    let downloadUrl = res.data.original
+    if (!downloadUrl) {
+      await new Promise((r) => setTimeout(r, 3000))
+      const retry = await this.req<FioResponse<FioAsset>>('GET', `/v4/accounts/${accountId}/files/${node.id}`)
+      downloadUrl = retry.data.original
+    }
+    if (!downloadUrl) throw new Error(`"${p}" has no download URL — the file may still be processing in Frame.io. Try again in a moment.`)
 
     const headers: Record<string, string> = {}
     if (offset > 0) headers.Range = `bytes=${offset}-`
@@ -414,7 +423,6 @@ export class FrameIoProvider implements Provider {
     const p = this.norm(path)
     const accountId = await this.getAccountId()
 
-    // Resolve the folder ID for this path.
     let node = this.nodes.get(p)
     if (!node) {
       await this.list(p)
@@ -422,28 +430,40 @@ export class FrameIoProvider implements Provider {
     }
     if (!node) return null
 
-    // Workspaces contain projects, not files — no meaningful size to sum.
-    if (node.kind === 'workspace') return null
+    // Collect the root folder IDs to kick off the BFS.
+    // For a workspace: list all projects, collect each project's root folder.
+    // For a project: resolve its root folder.
+    // For a regular folder: use directly.
+    const rootFolderIds: string[] = []
 
-    let folderId: string
-    if (node.kind === 'project') {
-      // Mirror list()'s lazy fetch of the root folder ID.
+    if (node.kind === 'workspace') {
+      const projects = await this.reqAll<FioProject>(
+        `/v4/accounts/${accountId}/workspaces/${node.id}/projects`
+      )
+      await Promise.all(projects.map(async (proj) => {
+        const rootId = proj.root_folder_id ?? (
+          await this.req<FioResponse<FioProject>>('GET', `/v4/accounts/${accountId}/projects/${proj.id}`)
+        ).data.root_folder_id
+        if (rootId) rootFolderIds.push(rootId)
+      }))
+    } else if (node.kind === 'project') {
       if (!node.rootFolderId) {
         const proj = await this.req<FioResponse<FioProject>>(
           'GET', `/v4/accounts/${accountId}/projects/${node.id}`
         )
         node.rootFolderId = proj.data.root_folder_id
-        if (!node.rootFolderId) return null
       }
-      folderId = node.rootFolderId
+      if (node.rootFolderId) rootFolderIds.push(node.rootFolderId)
     } else {
-      folderId = node.id
+      rootFolderIds.push(node.id)
     }
 
-    // Recursively sum file_size across all descendants via BFS.
+    if (rootFolderIds.length === 0) return null
+
+    // BFS across all root folders, accumulating file sizes.
     let totalSize = 0
     let latestMs = 0
-    const queue: string[] = [folderId]
+    const queue: string[] = [...rootFolderIds]
 
     while (queue.length > 0) {
       const batch = queue.splice(0, 5)

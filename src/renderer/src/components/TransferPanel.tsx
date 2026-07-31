@@ -237,15 +237,20 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 							? (() => {
 								const transferring = active.filter((t) => t.status === 'transferring')
 								const queued = active.filter((t) => t.status === 'queued')
-								if (isWaitingForServer) {
-									return `${transferring.length} file${transferring.length !== 1 ? 's' : ''} · ${formatBytes(totalBytes)} · Waiting for server…`
-								}
-								return [
-									transferring.length > 0 && `${transferring.length} uploading`,
-									queued.length > 0 && `${queued.length} queued`,
-									`${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}`,
-									effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
-								].filter(Boolean).join(' · ')
+								const statusLine = isWaitingForServer
+									? `${transferring.length} file${transferring.length !== 1 ? 's' : ''} · ${formatBytes(totalBytes)} · Waiting for server…`
+									: [
+										transferring.length > 0 && `${transferring.length} uploading`,
+										queued.length > 0 && `${queued.length} queued`,
+										`${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}`,
+										effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
+									].filter(Boolean).join(' · ')
+								return (
+									<span>
+										<span>{statusLine}</span>
+										{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
+									</span>
+								)
 							})()
 							: canceledAll && allFinished
 								? <span className="transfers-cancelled">✕ Transfers Cancelled</span>

@@ -74,6 +74,8 @@ const api = {
       ipcRenderer.invoke(IPC.fsFolderContents, { connectionId, path }),
     folderTree: (connectionId: string, path: string): Promise<FolderTreeResult> =>
       ipcRenderer.invoke(IPC.fsFolderTree, { connectionId, path }),
+    openFile: (path: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsOpenFile, { path }),
     startDrag: (paths: string[]): void =>
       ipcRenderer.send(IPC.fsStartDrag, paths)
   },

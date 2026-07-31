@@ -30,7 +30,7 @@ class TransferEngine extends EventEmitter {
   private canceled = new Set<string>()
   private activeStreams = new Map<string, import('stream').Readable>()
   private running = 0
-  private concurrency = 2
+  private concurrency = 4
   private seq = 0
   private progressTimer: ReturnType<typeof setInterval> | null = null
 

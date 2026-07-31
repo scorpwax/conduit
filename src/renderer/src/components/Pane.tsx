@@ -60,13 +60,30 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 		})
 		void window.conduit.fs.folderSize(pane.connectionId, path).then((result) => {
 			setFolderSizes((s) => ({ ...s, [path]: result }))
+		}).catch(() => {
+			setFolderSizes((s) => ({ ...s, [path]: null }))
 		})
 	}, [pane.connectionId])
 
 	const fetchAllFolderSizes = useCallback((): void => {
 		const dirs = pane.result?.entries.filter((e) => e.kind === 'directory') ?? []
-		for (const dir of dirs) fetchFolderSize(dir.path)
-	}, [pane.result, fetchFolderSize])
+		if (!pane.connectionId) return
+		const connType = connections.find((c) => c.id === pane.connectionId)?.type
+		// Frame.io: walk folders one at a time to avoid rate-limiting hundreds of
+		// concurrent recursive API walks. Other providers fire all at once (fast).
+		if (connType === 'frameio') {
+			void (async () => {
+				for (const dir of dirs) {
+					setFolderSizes((s) => s[dir.path] !== undefined ? s : { ...s, [dir.path]: 'loading' })
+					await window.conduit.fs.folderSize(pane.connectionId!, dir.path)
+						.then((result) => setFolderSizes((s) => ({ ...s, [dir.path]: result })))
+						.catch(() => setFolderSizes((s) => ({ ...s, [dir.path]: null })))
+				}
+			})()
+		} else {
+			for (const dir of dirs) fetchFolderSize(dir.path)
+		}
+	}, [pane.result, pane.connectionId, connections, fetchFolderSize])
 
 	const connection: Connection | null = useMemo(() => {
 		if (!pane.connectionId) return null

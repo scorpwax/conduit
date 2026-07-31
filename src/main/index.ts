@@ -312,6 +312,11 @@ function registerIpc(): void {
     shell.showItemInFolder(args.path)
   })
 
+  ipcMain.handle(IPC.fsOpenFile, async (_e, args: { path: string }) => {
+    const err = await shell.openPath(args.path)
+    if (err) throw new Error(err)
+  })
+
   // Return the basenames of source items that already exist in the destination dir.
   ipcMain.handle(
     IPC.transferCheckConflicts,

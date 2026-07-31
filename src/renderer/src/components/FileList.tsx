@@ -171,6 +171,10 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
 
   function onRowDoubleClick(entry: FileEntry): void {
     if (entry.kind === 'directory') void navigate(pane.id, entry.path)
+    else {
+      const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
+      if (connType === 'local' || connType === 'smb') void window.conduit.fs.openFile(entry.path)
+    }
   }
 
   function selectedEntries(): FileEntry[] {
@@ -212,14 +216,31 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       e.preventDefault()
       const prevIdx = lastIndex > 0 ? lastIndex - 1 : 0
       if (rows[prevIdx]) setSelection(pane.id, [rows[prevIdx].entry.path])
-    } else if (e.key === 'ArrowRight' && pane.selection.length === 1) {
+    } else if (e.key === 'ArrowRight' && pane.selection.length > 0) {
       e.preventDefault()
-      const entry = rows.find((r) => r.entry.path === pane.selection[0])?.entry
-      if (entry?.kind === 'directory' && !expanded.has(entry.path)) void toggleExpand(entry)
-    } else if (e.key === 'ArrowLeft' && pane.selection.length === 1) {
+      const selSet = new Set(pane.selection)
+      const dirs = rows.filter((r) => selSet.has(r.entry.path) && r.entry.kind === 'directory').map((r) => r.entry)
+      const toOpen = dirs.filter((d) => !expanded.has(d.path))
+      if (toOpen.length > 0) {
+        setExpanded((prev) => { const next = new Set(prev); toOpen.forEach((d) => next.add(d.path)); return next })
+        if (pane.connectionId) {
+          for (const dir of toOpen) {
+            if (!childCache[dir.path]) {
+              void window.conduit.fs.list(pane.connectionId, dir.path).then((result) => {
+                setChildCache((c) => ({ ...c, [dir.path]: result.entries }))
+              }).catch(() => setChildCache((c) => ({ ...c, [dir.path]: [] })))
+            }
+          }
+        }
+      }
+    } else if (e.key === 'ArrowLeft' && pane.selection.length > 0) {
       e.preventDefault()
-      const entry = rows.find((r) => r.entry.path === pane.selection[0])?.entry
-      if (entry?.kind === 'directory' && expanded.has(entry.path)) void toggleExpand(entry)
+      const selSet = new Set(pane.selection)
+      const dirs = rows.filter((r) => selSet.has(r.entry.path) && r.entry.kind === 'directory').map((r) => r.entry)
+      const toClose = dirs.filter((d) => expanded.has(d.path))
+      if (toClose.length > 0) {
+        setExpanded((prev) => { const next = new Set(prev); toClose.forEach((d) => next.delete(d.path)); return next })
+      }
     } else if (meta && (e.key === 'c' || e.key === 'C') && pane.selection.length > 0) {
       e.preventDefault()
       const first = rows.find((r) => r.entry.path === pane.selection[0])?.entry
@@ -351,14 +372,20 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
 
   function menuItems(entry: FileEntry): ContextMenuItem[] {
     const items: ContextMenuItem[] = []
+    const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
+    const isLocalConn = pane.connectionId === BUILTIN_LOCAL_ID || connType === 'local'
+    if (entry.kind === 'file' && isLocalConn) {
+      items.push({
+        label: 'Open',
+        onClick: () => void window.conduit.fs.openFile(entry.path)
+      })
+    }
     if (entry.kind === 'file' && window.conduit.platform === 'darwin') {
       items.push({
         label: 'Quick Look',
         onClick: () => pane.connectionId && window.conduit.fs.preview(pane.connectionId, entry.path)
       })
     }
-    const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
-    const isLocalConn = pane.connectionId === BUILTIN_LOCAL_ID || connType === 'local'
     if (isLocalConn && window.conduit.platform === 'darwin') {
       items.push({
         label: 'Reveal in Finder',

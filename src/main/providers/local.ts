@@ -67,8 +67,10 @@ export class LocalProvider implements Provider {
 
   async createReadStream(path: string, offset = 0): Promise<{ stream: Readable; size: number }> {
     const stat = await fs.stat(path)
-    const stream = offset > 0 ? createReadStream(path, { start: offset }) : createReadStream(path)
-    return { stream, size: stat.size }
+    const opts = offset > 0
+      ? { start: offset, highWaterMark: 1 * 1024 * 1024 }
+      : { highWaterMark: 1 * 1024 * 1024 }
+    return { stream: createReadStream(path, opts), size: stat.size }
   }
 
   async writeFile(
@@ -79,6 +81,16 @@ export class LocalProvider implements Provider {
     appendFromOffset = 0
   ): Promise<void> {
     await fs.mkdir(dirname(path), { recursive: true })
+
+    // Fast path: if the body is a LocalReadStream (comes from another LocalProvider),
+    // use fs.copyFile which delegates to the OS (clonefile on APFS, sendfile elsewhere).
+    const srcPath: string | undefined = (body as NodeJS.ReadableStream & { path?: string }).path as string | undefined
+    if (srcPath && appendFromOffset === 0) {
+      await fs.copyFile(srcPath, path)
+      if (onProgress) onProgress(_size)
+      return
+    }
+
     // Track cumulative bytes including any already-written offset so progress
     // reflects total file progress, not just the bytes written in this session.
     let written = appendFromOffset
@@ -89,7 +101,7 @@ export class LocalProvider implements Provider {
       })
     }
     const flags = appendFromOffset > 0 ? 'a' : 'w'
-    await pipeline(body, createWriteStream(path, { flags }))
+    await pipeline(body, createWriteStream(path, { flags, highWaterMark: 1 * 1024 * 1024 }))
   }
 
   async mkdir(path: string): Promise<void> {

@@ -36,6 +36,7 @@ export const IPC = {
   fsFolderContents: 'fs:folderContents',
   fsFolderTree: 'fs:folderTree',
 
+  fsOpenFile: 'fs:openFile',
   fsStartDrag: 'fs:startDrag',
   transferRetry: 'transfer:retry',
   dialogPickFolder: 'dialog:pickFolder',

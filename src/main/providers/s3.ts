@@ -57,6 +57,9 @@ export class S3Provider implements Provider {
         accessKeyId: this.cfg.accessKeyId,
         secretAccessKey: this.cfg.secretAccessKey
       },
+      // Prevents "Only the last chunk is allowed to have a size less than 8192 bytes"
+      // errors from Wasabi/S3 when chunked-transfer-encoded streams produce small tail chunks.
+      requestStreamBufferSize: 256 * 1024,
       requestHandler: new NodeHttpHandler({
         connectionTimeout: 10_000,
         socketTimeout: 0,

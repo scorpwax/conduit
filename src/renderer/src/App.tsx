@@ -198,7 +198,7 @@ export default function App(): JSX.Element {
 					title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
 					onClick={toggleShowHidden}
 				>
-					{showHidden ? `'👁 Hidden Files: On'` : '👁 Hidden Files: Off'}
+					{showHidden ? 'Hidden Files: On' : 'Hidden Files: Off'}
 				</button>
 				<button className="btn ghost toolbtn" title="Activity log" onClick={() => setLogsOpen(true)}>
 					<span className="material-symbols-outlined">article</span> Logs

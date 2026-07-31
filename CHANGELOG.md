@@ -12,6 +12,20 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.19.0] — 2026-07-31
+
+### Added
+- **Open with default app** — double-clicking a file on a local or SMB connection now opens it in its default app (same as double-clicking in Finder). Also available via right-click → Open.
+- **Arrow key expand/collapse for multi-selection** — Right Arrow expands all selected folders' disclosure triangles; Left Arrow collapses them. Works for any number of selected folders, matching Finder behavior.
+
+### Fixed
+- **Context menu clipping** — menus that would appear below or to the right of the window edge are now clamped to stay fully visible.
+- **Transfer route shown during active transfer** — the "Source → Destination" route label now appears while a transfer is in progress, not only after it completes.
+- **Transfer speed** — default concurrency raised from 2 → 4 simultaneous files; local provider now uses `fs.copyFile` (OS-level copy, APFS clone on same volume) and 1 MB stream buffers instead of the default 64 KB.
+- **Wasabi S3 chunk size error** — added `requestStreamBufferSize: 256 KB` to the S3 client to prevent "Only the last chunk is allowed to have a size less than 8192 bytes" errors on rearrange/rename operations.
+- **Frame.io download URL** — when a file's `original` download URL is temporarily absent (still processing), Conduit now retries once after 3 s before failing with a clearer error message.
+- **Pre-existing TypeScript error** in Pane.tsx (`string | null` passed to `folderSize`).
+
 ## [1.18.3] — 2026-07-29
 
 ### Fixed
