@@ -12,6 +12,15 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.19.3] — 2026-07-31
+
+### Changed
+- **Context menu** — rearranged into four logical groups separated by dividers:
+  1. Open / Quick Look / Open in New Pane / Reveal in Finder / Add to Favorites
+  2. Select All / Deselect All / Copy / Paste / Rename…
+  3. Download… / Copy Path / Properties / File Tree…
+  4. Delete (isolated at bottom)
+
 ## [1.19.2] — 2026-07-31
 
 ### Fixed

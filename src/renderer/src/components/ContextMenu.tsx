@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
-export interface ContextMenuItem {
-  label: string
-  danger?: boolean
-  disabled?: boolean
-  onClick: () => void
-}
+export type ContextMenuItem =
+  | { separator: true }
+  | { label: string; danger?: boolean; disabled?: boolean; onClick: () => void }
 
 interface Props {
   x: number
@@ -43,19 +40,23 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
         }}
       />
       <div ref={menuRef} className="ctx-menu" style={{ top: pos.top, left: pos.left }}>
-        {items.map((item, i) => (
-          <div
-            key={i}
-            className={`ctx-item ${item.danger ? 'danger' : ''} ${item.disabled ? 'disabled' : ''}`}
-            onClick={() => {
-              if (item.disabled) return
-              item.onClick()
-              onClose()
-            }}
-          >
-            {item.label}
-          </div>
-        ))}
+        {items.map((item, i) =>
+          'separator' in item ? (
+            <div key={i} className="ctx-sep" />
+          ) : (
+            <div
+              key={i}
+              className={`ctx-item ${item.danger ? 'danger' : ''} ${item.disabled ? 'disabled' : ''}`}
+              onClick={() => {
+                if (item.disabled) return
+                item.onClick()
+                onClose()
+              }}
+            >
+              {item.label}
+            </div>
+          )
+        )}
       </div>
     </>
   )

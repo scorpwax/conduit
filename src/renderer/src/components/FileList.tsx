@@ -374,45 +374,41 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     const items: ContextMenuItem[] = []
     const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
     const isLocalConn = pane.connectionId === BUILTIN_LOCAL_ID || connType === 'local'
+
+    // Group 1: primary actions
     if (entry.kind === 'file' && isLocalConn) {
-      items.push({
-        label: 'Open',
-        onClick: () => void window.conduit.fs.openFile(entry.path)
-      })
+      items.push({ label: 'Open', onClick: () => void window.conduit.fs.openFile(entry.path) })
     }
     if (entry.kind === 'file' && window.conduit.platform === 'darwin') {
-      items.push({
-        label: 'Quick Look',
-        onClick: () => pane.connectionId && window.conduit.fs.preview(pane.connectionId, entry.path)
-      })
-    }
-    if (isLocalConn && window.conduit.platform === 'darwin') {
-      items.push({
-        label: 'Reveal in Finder',
-        onClick: () => void window.conduit.fs.revealFile(entry.path)
-      })
+      items.push({ label: 'Quick Look', onClick: () => pane.connectionId && window.conduit.fs.preview(pane.connectionId, entry.path) })
     }
     items.push({ label: 'Open in New Pane', onClick: () => doOpenInNewPane(entry) })
+    if (isLocalConn && window.conduit.platform === 'darwin') {
+      items.push({ label: 'Reveal in Finder', onClick: () => void window.conduit.fs.revealFile(entry.path) })
+    }
+    items.push({ label: 'Add to Favorites', onClick: () => doAddFavorite(entry) })
+
+    // Group 2: edit actions
+    items.push({ separator: true })
+    items.push({ label: 'Select All', onClick: () => setSelection(pane.id, rows.map((r) => r.entry.path)) })
+    items.push({ label: 'Deselect All', disabled: pane.selection.length === 0, onClick: () => setSelection(pane.id, []) })
     items.push({ label: 'Copy', onClick: () => doCopy(entry) })
     items.push({ label: 'Paste', disabled: !clipboard, onClick: () => void pasteInto(pane.id) })
-    items.push({
-      label: 'Select All',
-      onClick: () => setSelection(pane.id, rows.map((r) => r.entry.path))
-    })
-    items.push({
-      label: 'Deselect All',
-      disabled: pane.selection.length === 0,
-      onClick: () => setSelection(pane.id, [])
-    })
-    items.push({ label: 'Add to Favorites', onClick: () => doAddFavorite(entry) })
-    items.push({ label: 'Download…', onClick: () => void doDownload(entry) })
     items.push({ label: 'Rename…', onClick: () => void doRename(entry) })
-    items.push({ label: 'Delete', danger: true, onClick: () => void doDelete(entry) })
+
+    // Group 3: info / export
+    items.push({ separator: true })
+    items.push({ label: 'Download…', onClick: () => void doDownload(entry) })
     items.push({ label: 'Copy Path', onClick: () => doCopyPath(entry) })
     items.push({ label: 'Properties', onClick: () => doGetInfo(entry) })
     if (entry.kind === 'directory') {
       items.push({ label: 'File Tree…', onClick: () => doViewTree(entry) })
     }
+
+    // Group 4: destructive
+    items.push({ separator: true })
+    items.push({ label: 'Delete', danger: true, onClick: () => void doDelete(entry) })
+
     return items
   }
 
