@@ -12,6 +12,16 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.19.1] — 2026-07-31
+
+### Added
+- **Light / Dark mode toggle** — sun/moon button in the top nav switches between themes; preference is persisted across restarts.
+- **Properties: byte-exact size** — Size now shows both human-readable and exact byte count (e.g. "269 GB (289,691,237,338 bytes)") for files and folders.
+- **Properties: File Count** — folders now show a "File Count" row with total items (files + folders combined), matching the File Tree format.
+
+### Fixed
+- **Wasabi S3 chunk-size error (revised)** — previous fix (requestStreamBufferSize) was insufficient; the small-file PutObject path now buffers the stream into a Buffer before uploading, eliminating chunked transfer encoding entirely.
+
 ## [1.19.0] — 2026-07-31
 
 ### Added

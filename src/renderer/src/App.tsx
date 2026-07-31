@@ -17,6 +17,8 @@ export default function App(): JSX.Element {
 	const toggleShowHidden = useStore((s) => s.toggleShowHidden)
 	const fontScale = useStore((s) => s.fontScale)
 	const adjustFontScale = useStore((s) => s.adjustFontScale)
+	const theme = useStore((s) => s.theme)
+	const toggleTheme = useStore((s) => s.toggleTheme)
 	const transfers = useStore((s) => s.transfers)
 
 	const [modal, setModal] = useState<{
@@ -90,6 +92,11 @@ export default function App(): JSX.Element {
 	useEffect(() => {
 		document.documentElement.style.setProperty('--fl-scale', String(fontScale))
 	}, [fontScale])
+
+	// Apply theme on mount and whenever it changes.
+	useEffect(() => {
+		document.documentElement.setAttribute('data-theme', theme)
+	}, [theme])
 
 	// ⌘+ / ⌘- adjust font size (⌘0 resets).
 	useEffect(() => {
@@ -193,6 +200,14 @@ export default function App(): JSX.Element {
 						A+
 					</button>
 				</div>
+				<button
+					className="btn ghost toolbtn"
+					title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+					onClick={toggleTheme}
+				>
+					<span className="material-symbols-outlined">{theme === 'dark' ? 'light_mode' : 'dark_mode'}</span>
+					{theme === 'dark' ? 'Light' : 'Dark'}
+				</button>
 				<button
 					className={`btn ghost toolbtn ${showHidden ? 'active' : ''}`}
 					title={showHidden ? 'Hide hidden files' : 'Show hidden files'}

@@ -54,6 +54,8 @@ interface AppState {
   showHidden: boolean
   /** File-list font scale (1 = default). Persisted. */
   fontScale: number
+  /** UI color theme. Persisted. */
+  theme: 'dark' | 'light'
   /**
    * ConnectionIds that had an active pane closed without disconnecting.
    * The provider is still cached on the main process — these are "background"
@@ -64,6 +66,7 @@ interface AppState {
   init: () => Promise<void>
   toggleShowHidden: () => void
   adjustFontScale: (delta: number) => void
+  toggleTheme: () => void
   reloadConnections: () => Promise<void>
 
   addPane: () => void
@@ -132,6 +135,8 @@ export const useStore = create<AppState>((set, get) => ({
     typeof localStorage !== 'undefined' && localStorage.getItem('conduit.showHidden') === 'true',
   fontScale:
     typeof localStorage !== 'undefined' ? Number(localStorage.getItem('conduit.fontScale')) || 1 : 1,
+  theme:
+    typeof localStorage !== 'undefined' && localStorage.getItem('conduit.theme') === 'light' ? 'light' : 'dark',
   backgroundConnectionIds: [],
 
   async init() {
@@ -233,6 +238,15 @@ export const useStore = create<AppState>((set, get) => ({
       const fontScale = Math.min(1.6, Math.max(0.8, Math.round((s.fontScale + delta) * 10) / 10))
       if (typeof localStorage !== 'undefined') localStorage.setItem('conduit.fontScale', String(fontScale))
       return { fontScale }
+    })
+  },
+
+  toggleTheme() {
+    set((s) => {
+      const theme = s.theme === 'dark' ? 'light' : 'dark'
+      if (typeof localStorage !== 'undefined') localStorage.setItem('conduit.theme', theme)
+      document.documentElement.setAttribute('data-theme', theme)
+      return { theme }
     })
   },
 

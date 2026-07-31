@@ -1,4 +1,4 @@
-import { Readable, Transform } from 'stream'
+import { Readable } from 'stream'
 import http from 'http'
 import https from 'https'
 import {
@@ -218,35 +218,33 @@ export class S3Provider implements Provider {
       return
     }
 
-    // Small files (≤50 MB): single PutObjectCommand with a Transform for progress.
-    // The Transform wraps the body so the SDK reads in paused mode (not flowing),
-    // and counts bytes as they pass through to report progress.
-    let uploadBody: Readable = body
-    if (onProgress) {
-      let written = 0
-      const counter = new Transform({
-        readableHighWaterMark: 256 * 1024,
-        writableHighWaterMark: 256 * 1024,
-        transform(chunk: Buffer, _enc, cb) {
-          written += chunk.length
-          try { onProgress(written) } catch { /* renderer may have closed */ }
-          cb(null, chunk)
-        }
-      })
-      body.on('error', (err) => counter.destroy(err))
-      body.pipe(counter)
-      uploadBody = counter
-    }
-
+    // Small files (≤50 MB): buffer into memory before PutObjectCommand.
+    // Passing a Node.js Readable to PutObjectCommand causes the AWS SDK v3 to use
+    // Transfer-Encoding: chunked even when ContentLength is set. Wasabi rejects chunks
+    // smaller than 8192 bytes ("Only the last chunk is allowed…"). Buffering first gives
+    // the SDK a concrete Buffer body so it sends a plain Content-Length request instead.
     if (!size) throw new Error(`Cannot upload "${key}": file size is unknown or zero`)
+    const chunks: Buffer[] = []
+    let buffered = 0
+    await new Promise<void>((resolve, reject) => {
+      body.on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+        buffered += chunk.length
+        try { onProgress?.(buffered) } catch { /* renderer may have closed */ }
+      })
+      body.on('end', resolve)
+      body.on('error', reject)
+    })
+    const buf = Buffer.concat(chunks)
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.cfg.bucket,
         Key: key,
-        Body: uploadBody,
-        ContentLength: size
+        Body: buf,
+        ContentLength: buf.length
       })
     )
+    try { onProgress?.(size) } catch { /* renderer may have closed */ }
   }
 
   async mkdir(path: string): Promise<void> {

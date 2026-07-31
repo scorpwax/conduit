@@ -560,10 +560,20 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 <FileInfoRow
                   label="Size"
                   value={(() => {
-                    if (!isDir) return formatBytes(infoFull?.size ?? infoEntry.size ?? 0)
+                    if (!isDir) {
+                      const bytes = infoFull?.size ?? infoEntry.size ?? 0
+                      if (!bytes) return '—'
+                      const human = formatBytes(bytes)
+                      const raw = bytes.toLocaleString()
+                      return bytes >= 1000 ? `${human} (${raw} bytes)` : human
+                    }
                     const fsz = folderSizes[infoEntry.path]
                     if (fsz === 'loading' || fsz === undefined) return 'Calculating…'
-                    if (fsz && typeof fsz === 'object') return formatBytes(fsz.size)
+                    if (fsz && typeof fsz === 'object') {
+                      const human = formatBytes(fsz.size)
+                      const raw = fsz.size.toLocaleString()
+                      return fsz.size >= 1000 ? `${human} (${raw} bytes)` : human
+                    }
                     return 'Unavailable'
                   })()}
                 />
@@ -580,6 +590,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                     note="Direct children only — does not recurse into subfolders"
                   />
                 )}
+                {isDir && (() => {
+                  if (infoContents === 'loading') return <FileInfoRow label="File Count" value="Loading…" />
+                  if (!infoContents) return null
+                  const total = infoContents.files + infoContents.folders
+                  return <FileInfoRow label="File Count" value={`${total.toLocaleString()} item${total !== 1 ? 's' : ''}`} note="Direct children only" />
+                })()}
                 {!isDir && (
                   <FileInfoRow
                     label="Checksum"
