@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.19.2] — 2026-07-31
+
+### Fixed
+- **Properties Item Count** — now recursively counts all files and folders at every depth inside the selected folder, matching macOS / Windows Get Info behavior. Displays as "387 Items · 300 Files · 87 Folders".
+
 ## [1.19.1] — 2026-07-31
 
 ### Added

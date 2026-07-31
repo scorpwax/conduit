@@ -583,18 +583,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                   const modDate = infoFull?.modified ?? infoEntry.modified ?? folderModified
                   return modDate ? <FileInfoRow label="Modified" value={formatDate(modDate)} /> : null
                 })()}
-                {isDir && contentsLabel !== null && (
-                  <FileInfoRow
-                    label="Contents"
-                    value={contentsLabel}
-                    note="Direct children only — does not recurse into subfolders"
-                  />
-                )}
                 {isDir && (() => {
-                  if (infoContents === 'loading') return <FileInfoRow label="File Count" value="Loading…" />
+                  if (infoContents === 'loading') return <FileInfoRow label="Item Count" value="Counting…" />
                   if (!infoContents) return null
                   const total = infoContents.files + infoContents.folders
-                  return <FileInfoRow label="File Count" value={`${total.toLocaleString()} item${total !== 1 ? 's' : ''}`} note="Direct children only" />
+                  const parts = [`${total.toLocaleString()} Items`]
+                  if (infoContents.files > 0) parts.push(`${infoContents.files.toLocaleString()} Files`)
+                  if (infoContents.folders > 0) parts.push(`${infoContents.folders.toLocaleString()} Folders`)
+                  return <FileInfoRow label="Item Count" value={parts.join(' · ')} />
                 })()}
                 {!isDir && (
                   <FileInfoRow

@@ -451,13 +451,20 @@ function registerIpc(): void {
     async (_e, args: { connectionId: string; path: string }): Promise<{ files: number; folders: number } | null> => {
       try {
         const provider = await getProvider(args.connectionId)
-        const result = await provider.list(args.path)
         let files = 0
         let folders = 0
-        for (const e of result.entries) {
-          if (e.kind === 'directory') folders++
-          else files++
+        const walk = async (path: string): Promise<void> => {
+          const result = await provider.list(path)
+          for (const e of result.entries) {
+            if (e.kind === 'directory') {
+              folders++
+              await walk(e.path)
+            } else {
+              files++
+            }
+          }
         }
+        await walk(args.path)
         return { files, folders }
       } catch {
         return null
