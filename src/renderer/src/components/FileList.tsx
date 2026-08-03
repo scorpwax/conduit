@@ -7,6 +7,7 @@ import { formatBytes, formatDate, fileIcon, fileType } from '../lib/format'
 import { setDrag, clearDrag, getDrag } from '../lib/drag'
 import { confirmDialog, promptDialog } from '../lib/dialog'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { BatchRenameModal } from './BatchRenameModal'
 
 interface Props {
   pane: PaneState
@@ -48,6 +49,9 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const [infoFull, setInfoFull] = useState<FileEntry | null>(null)
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
   const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
+
+  const [batchRenameOpen, setBatchRenameOpen] = useState(false)
+  const [batchRenameEntries, setBatchRenameEntries] = useState<FileEntry[]>([])
 
   const [treeEntry, setTreeEntry] = useState<FileEntry | null>(null)
   const [treeResult, setTreeResult] = useState<FolderTreeResult | null>(null)
@@ -395,6 +399,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     items.push({ label: 'Copy', onClick: () => doCopy(entry) })
     items.push({ label: 'Paste', disabled: !clipboard, onClick: () => void pasteInto(pane.id) })
     items.push({ label: 'Rename…', onClick: () => void doRename(entry) })
+    items.push({
+      label: 'Batch Rename…',
+      onClick: () => {
+        const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
+        setBatchRenameEntries(targets)
+        setBatchRenameOpen(true)
+      }
+    })
 
     // Group 3: info / export
     items.push({ separator: true })
@@ -512,6 +524,16 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     >
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={menuItems(ctxMenu.entry)} onClose={() => setCtxMenu(null)} />
+      )}
+      {batchRenameOpen && pane.connectionId && (
+        <BatchRenameModal
+          entries={batchRenameEntries}
+          allEntries={raw}
+          connectionId={pane.connectionId}
+          onClose={() => setBatchRenameOpen(false)}
+          onRename={(path, newName) => renameEntry(pane.id, path, newName)}
+          onComplete={() => setBatchRenameOpen(false)}
+        />
       )}
       {pathCopied && (
         <div className="path-copied-toast">Path copied to clipboard</div>

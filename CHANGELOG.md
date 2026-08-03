@@ -12,6 +12,19 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.20.0] — 2026-08-03
+
+### Added
+- **Batch Rename** — new right-click menu item "Batch Rename…" opens a modal with five rename operations:
+  - **Replace** — find and replace text within filenames, with optional case-sensitive matching
+  - **Add Text** — prefix or suffix text with configurable separator (none / space / dash / underscore)
+  - **Remove** — remove specific characters, or strip the first/last N characters from a filename
+  - **Sequence** — number files with a configurable sequence name, digit count, starting number, and location (replace / prepend / append); sort order: custom selection, alphabetical, or file date (ascending/descending)
+  - **Date** — insert a date (any date or today's date) with format options (YYYY-MM-DD, YYYYMMDD, MM-DD-YYYY, MMDDYYYY, DD-MM-YYYY, DDMMYYYY) at any location with a configurable separator
+- Live before/after preview table updates in real time as you adjust settings; conflicting filenames are highlighted in red and automatically skipped with a warning count
+- Works on all connection types (local, S3, SFTP, FTP, WebDAV, Google Drive, OneDrive, Dropbox)
+- File extensions are always preserved; only the base filename is modified
+
 ## [1.19.3] — 2026-07-31
 
 ### Changed
