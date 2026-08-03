@@ -55,6 +55,7 @@ export function BatchRenameModal({ entries, allEntries, connectionId, onClose, o
 
   // Sequence
   const [seqName, setSeqName] = useState('')
+  const [seqNamePos, setSeqNamePos] = useState<'before' | 'after'>('before')
   const [seqDigits, setSeqDigits] = useState(2)
   const [seqStart, setSeqStart] = useState(1)
   const [seqLoc, setSeqLoc] = useState<'replace' | 'prepend' | 'append'>('append')
@@ -98,10 +99,12 @@ export function BatchRenameModal({ entries, allEntries, connectionId, onClose, o
       }
     } else if (tab === 'sequence') {
       const num = String(seqStart + index).padStart(seqDigits, '0')
-      const prefix = seqName ? seqName + num : num
-      if (seqLoc === 'replace') nb = prefix
-      else if (seqLoc === 'prepend') nb = base ? prefix + ' ' + base : prefix
-      else nb = base ? base + ' ' + prefix : prefix
+      const token = seqName
+        ? (seqNamePos === 'before' ? seqName + num : num + seqName)
+        : num
+      if (seqLoc === 'replace') nb = token
+      else if (seqLoc === 'prepend') nb = base ? token + ' ' + base : token
+      else nb = base ? base + ' ' + token : token
     } else if (tab === 'date') {
       if (!dateVal) return entry.name
       const formatted = fmtDate(dateVal, dateFmt)
@@ -129,7 +132,7 @@ export function BatchRenameModal({ entries, allEntries, connectionId, onClose, o
       return { entry, newName, unchanged, conflict }
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, entries, orderedEntries, allEntries, findText, replaceWith, caseSensitive, addText, addPos, addSep, removeMode, removeChars, removeN, seqName, seqDigits, seqStart, seqLoc, seqArrange, seqDir, dateVal, dateFmt, dateLoc, dateSep])
+  }, [tab, entries, orderedEntries, allEntries, findText, replaceWith, caseSensitive, addText, addPos, addSep, removeMode, removeChars, removeN, seqName, seqNamePos, seqDigits, seqStart, seqLoc, seqArrange, seqDir, dateVal, dateFmt, dateLoc, dateSep])
 
   const toRename = preview.filter((r) => !r.unchanged && !r.conflict)
   const conflictCount = preview.filter((r) => r.conflict).length
@@ -265,9 +268,22 @@ export function BatchRenameModal({ entries, allEntries, connectionId, onClose, o
           {tab === 'sequence' && (
             <div className="br-fields">
               <div className="br-two-col">
-                <div className="br-field-row">
-                  <label>Sequence Name</label>
-                  <input value={seqName} onChange={(e) => setSeqName(e.target.value)} placeholder="Optional prefix before number" autoFocus />
+                <div>
+                  <div className="br-field-row">
+                    <label>Sequence Name</label>
+                    <input value={seqName} onChange={(e) => setSeqName(e.target.value)} placeholder="Optional name" autoFocus />
+                  </div>
+                  <div className="br-field-row" style={{ marginTop: 8 }}>
+                    <label>Name position</label>
+                    <div className={`br-radios${!seqName ? ' faded' : ''}`}>
+                      {([['before', 'Before digits'], ['after', 'After digits']] as [typeof seqNamePos, string][]).map(([val, lbl]) => (
+                        <label key={val} className="br-radio">
+                          <input type="radio" checked={seqNamePos === val} onChange={() => setSeqNamePos(val)} disabled={!seqName} />
+                          {lbl}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div className="br-field-row">
                   <label>Location</label>
