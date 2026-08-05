@@ -237,6 +237,77 @@ export interface AppSettings {
   downloadDir?: string
 }
 
+// ── Sync ─────────────────────────────────────────────────────────────────────
+
+export type SyncMode = 'mirror' | 'copy' | 'two-way' | 'merge'
+export type SyncConflictResolution = 'newer' | 'larger' | 'ask' | 'keep-both'
+
+export interface SyncSchedule {
+  type: 'interval' | 'daily' | 'weekly' | 'monthly' | 'on-launch' | 'on-connection'
+  intervalMinutes?: number
+  time?: string       // HH:MM for daily/weekly/monthly
+  weekDay?: number    // 0=Sun..6=Sat for weekly
+  monthDay?: number   // 1-31 for monthly
+}
+
+export interface SyncRunStats {
+  copied: number
+  deleted: number
+  conflicts: number
+  skipped: number
+  errors: number
+  bytesTransferred: number
+  durationMs: number
+}
+
+export interface SyncTask {
+  id: string
+  name: string
+  leftConnectionId: string
+  leftPath: string
+  rightConnectionId: string
+  rightPath: string
+  mode: SyncMode
+  conflictResolution: SyncConflictResolution
+  propagateDeletions: boolean
+  syncHiddenFiles: boolean
+  schedule: SyncSchedule | null
+  enabled: boolean
+  lastRun: string | null
+  lastRunResult: 'success' | 'partial' | 'error' | null
+  lastRunStats: SyncRunStats | null
+  createdAt: string
+}
+
+export type SyncAction =
+  | 'copy-to-right'
+  | 'copy-to-left'
+  | 'delete-right'
+  | 'delete-left'
+  | 'conflict'
+  | 'unchanged'
+
+export interface SyncPreviewItem {
+  path: string
+  action: SyncAction
+  leftSize?: number
+  leftModified?: string | null
+  rightSize?: number
+  rightModified?: string | null
+  conflictWinner?: 'left' | 'right' | 'keep-both' | 'skip'
+  excluded: boolean
+}
+
+export interface SyncProgress {
+  taskId: string
+  phase: 'scanning' | 'executing'
+  current: number
+  total: number
+  currentPath?: string
+}
+
+// ── Folder tree ───────────────────────────────────────────────────────────────
+
 /** A node in a recursive folder tree. */
 export interface TreeNode {
   name: string

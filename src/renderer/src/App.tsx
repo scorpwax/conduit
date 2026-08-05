@@ -8,6 +8,7 @@ import { ConflictModal } from './components/ConflictModal'
 import { LogsPanel } from './components/LogsPanel'
 import { DialogHost } from './components/DialogHost'
 import { Logo } from './components/Logo'
+import { SyncPanel } from './components/SyncPanel'
 
 export default function App(): JSX.Element {
 	const init = useStore((s) => s.init)
@@ -27,6 +28,7 @@ export default function App(): JSX.Element {
 		paneId: string | null
 	} | null>(null)
 	const [logsOpen, setLogsOpen] = useState(false)
+	const [syncOpen, setSyncOpen] = useState(false)
 	const [version, setVersion] = useState('')
 	const [transferPanelOpen, setTransferPanelOpen] = useState(false)
 	const [downloadDir, setDownloadDir] = useState<string>('')
@@ -215,6 +217,9 @@ export default function App(): JSX.Element {
 				>
 					{showHidden ? 'Hidden Files: On' : 'Hidden Files: Off'}
 				</button>
+				<button className="btn ghost toolbtn none" title="Sync Tasks" onClick={() => setSyncOpen(true)}>
+					<span className="material-symbols-outlined">sync</span> Sync
+				</button>
 				<button className="btn ghost toolbtn" title="Activity log" onClick={() => setLogsOpen(true)}>
 					<span className="material-symbols-outlined">article</span> Logs
 				</button>
@@ -258,6 +263,7 @@ export default function App(): JSX.Element {
 			<ConflictModal />
 
 			{logsOpen && <LogsPanel onClose={() => setLogsOpen(false)} />}
+			{syncOpen && <SyncPanel onClose={() => setSyncOpen(false)} />}
 
 			<DialogHost />
 

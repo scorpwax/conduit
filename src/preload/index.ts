@@ -14,7 +14,11 @@ import type {
   LogCategory,
   AppSettings,
   UiState,
-  FolderTreeResult
+  FolderTreeResult,
+  SyncTask,
+  SyncPreviewItem,
+  SyncRunStats,
+  SyncProgress
 } from '../shared/types'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
@@ -128,6 +132,27 @@ const api = {
       ipcRenderer.invoke(IPC.appNotify, args),
     getUiState: (): Promise<UiState | null> => ipcRenderer.invoke(IPC.appGetUiState),
     saveUiState: (state: UiState): Promise<void> => ipcRenderer.invoke(IPC.appSaveUiState, state)
+  },
+  sync: {
+    getTasks: (): Promise<SyncTask[]> => ipcRenderer.invoke(IPC.syncGetTasks),
+    saveTask: (task: SyncTask): Promise<SyncTask[]> => ipcRenderer.invoke(IPC.syncSaveTask, task),
+    deleteTask: (id: string): Promise<SyncTask[]> => ipcRenderer.invoke(IPC.syncDeleteTask, id),
+    runPreview: (taskId: string, task: SyncTask): Promise<SyncPreviewItem[]> =>
+      ipcRenderer.invoke(IPC.syncRunPreview, { taskId, task }),
+    execute: (
+      taskId: string,
+      task: SyncTask,
+      items: SyncPreviewItem[]
+    ): Promise<SyncRunStats> => ipcRenderer.invoke(IPC.syncExecute, { taskId, task, items }),
+    cancel: (taskId: string): Promise<void> => ipcRenderer.invoke(IPC.syncCancel, taskId),
+    getLaunchAtStartup: (): Promise<boolean> => ipcRenderer.invoke(IPC.syncGetLaunchAtStartup),
+    setLaunchAtStartup: (enable: boolean): Promise<void> =>
+      ipcRenderer.invoke(IPC.syncSetLaunchAtStartup, enable),
+    onProgress: (cb: (progress: SyncProgress) => void): (() => void) => {
+      const listener = (_e: unknown, progress: SyncProgress): void => cb(progress)
+      ipcRenderer.on(IPC.evtSyncProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.evtSyncProgress, listener)
+    }
   },
   /** Resolve the absolute path of a File dropped from the OS (Finder/desktop). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),

@@ -1,9 +1,12 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification, Tray, Menu, powerSaveBlocker } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { IPC } from '@shared/ipc'
-import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult } from '@shared/types'
+import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, SyncTask, SyncPreviewItem } from '@shared/types'
+import { BUILTIN_LOCAL, BUILTIN_LOCAL_ID } from '@shared/builtin'
+import { syncStore } from './syncStore'
+import { syncEngine } from './sync/engine'
 import { logger, log } from './logger'
 import { getSettings, updateSettings } from './settings'
 import { connectionStore } from './store'
@@ -37,11 +40,26 @@ transferEngine.on('update', (items) => {
   sendToRenderer(IPC.evtTransferUpdate, items)
   // Use full queue (not just changed items) so a single-file completion event
   // doesn't incorrectly flip the dock badge to "all done" mid-batch.
-  updateSystemProgress(transferEngine.getAll())
+  const all = transferEngine.getAll()
+  updateSystemProgress(all)
+  syncPowerBlocker(all)
 })
 
 let dockClearTimer: ReturnType<typeof setTimeout> | null = null
 let prevAllDone = false
+
+// Prevent OS from suspending the process during active transfers.
+let powerBlockerId: number | null = null
+
+function syncPowerBlocker(items: import('@shared/types').TransferItem[]): void {
+  const hasActive = items.some(i => i.status === 'transferring' || i.status === 'queued')
+  if (hasActive && powerBlockerId === null) {
+    powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+  } else if (!hasActive && powerBlockerId !== null) {
+    powerSaveBlocker.stop(powerBlockerId)
+    powerBlockerId = null
+  }
+}
 
 function updateSystemProgress(items: import('@shared/types').TransferItem[]): void {
   const active = items.filter(i => i.status === 'transferring')
@@ -122,11 +140,22 @@ async function createWindow(): Promise<void> {
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
-      contextIsolation: true
+      contextIsolation: true,
+      // Prevent Chromium from throttling timers and IPC when the window is
+      // minimized or hidden — keeps transfer progress flowing in the renderer.
+      backgroundThrottling: false
     }
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // Windows: force a full repaint on restore to fix the blank/black window bug
+  // that occurs after minimizing with GPU compositing.
+  if (process.platform === 'win32') {
+    mainWindow.on('restore', () => {
+      mainWindow?.webContents.invalidate()
+    })
+  }
 
   // Intercept window close (red X and Cmd+Q both come through here after before-quit sets quitInProgress).
   mainWindow.on('close', (e) => {
@@ -644,6 +673,81 @@ function registerIpc(): void {
     }
     await fs.writeFile(uiStatePath(), JSON.stringify(state, null, 2), 'utf-8')
   })
+
+  // ---- Sync ----
+  ipcMain.handle(IPC.syncGetTasks, () => syncStore.getAll())
+
+  ipcMain.handle(IPC.syncSaveTask, async (_e, task: SyncTask) => {
+    const tasks = await syncStore.save(task)
+    scheduleSync()
+    return tasks
+  })
+
+  ipcMain.handle(IPC.syncDeleteTask, (_e, id: string) => syncStore.remove(id))
+
+  ipcMain.handle(IPC.syncRunPreview, async (_e, args: { taskId: string; task: SyncTask }) => {
+    const { taskId, task } = args
+    const leftConn = task.leftConnectionId === BUILTIN_LOCAL_ID
+      ? BUILTIN_LOCAL
+      : await connectionStore.getResolved(task.leftConnectionId)
+    const rightConn = task.rightConnectionId === BUILTIN_LOCAL_ID
+      ? BUILTIN_LOCAL
+      : await connectionStore.getResolved(task.rightConnectionId)
+    if (!leftConn || !rightConn) throw new Error('Connection not found')
+
+    const leftProvider = createProvider(leftConn)
+    const rightProvider = createProvider(rightConn)
+
+    const onProgress = (p: unknown): void => sendToRenderer(IPC.evtSyncProgress, p)
+    syncEngine.on('progress', onProgress)
+    try {
+      return await syncEngine.scan(taskId, task, leftProvider, rightProvider)
+    } finally {
+      syncEngine.removeListener('progress', onProgress)
+    }
+  })
+
+  ipcMain.handle(
+    IPC.syncExecute,
+    async (_e, args: { taskId: string; task: SyncTask; items: SyncPreviewItem[] }) => {
+      const { taskId, task, items } = args
+      const leftConn = task.leftConnectionId === BUILTIN_LOCAL_ID
+        ? BUILTIN_LOCAL
+        : await connectionStore.getResolved(task.leftConnectionId)
+      const rightConn = task.rightConnectionId === BUILTIN_LOCAL_ID
+        ? BUILTIN_LOCAL
+        : await connectionStore.getResolved(task.rightConnectionId)
+      if (!leftConn || !rightConn) throw new Error('Connection not found')
+
+      const leftProvider = createProvider(leftConn)
+      const rightProvider = createProvider(rightConn)
+
+      const onProgress = (p: unknown): void => sendToRenderer(IPC.evtSyncProgress, p)
+      syncEngine.on('progress', onProgress)
+      try {
+        const stats = await syncEngine.execute(taskId, task, items, leftProvider, rightProvider)
+        const result =
+          stats.errors > 0
+            ? stats.errors >= stats.copied + stats.deleted
+              ? 'error'
+              : 'partial'
+            : 'success'
+        await syncStore.updateTaskResult(taskId, result, stats)
+        log.info('sync', `Sync "${task.name}" — ${stats.copied} copied, ${stats.deleted} deleted, ${stats.errors} errors`)
+        return stats
+      } finally {
+        syncEngine.removeListener('progress', onProgress)
+      }
+    }
+  )
+
+  ipcMain.handle(IPC.syncCancel, (_e, taskId: string) => syncEngine.cancel(taskId))
+
+  ipcMain.handle(IPC.syncGetLaunchAtStartup, () => app.getLoginItemSettings().openAtLogin)
+
+  ipcMain.handle(IPC.syncSetLaunchAtStartup, (_e, enable: boolean) => {
+    app.setLoginItemSettings({ openAtLogin: enable })
+  })
 }
 
 // Suppress Chromium GPU/EGL process log noise (EGL driver warnings) in dev mode.
@@ -676,6 +780,111 @@ app.on('second-instance', (_event, argv) => {
   }
 })
 
+// ── Sync scheduler ────────────────────────────────────────────────────────────
+// Maps taskId → timer handle for interval-scheduled tasks.
+const syncTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+async function runScheduledSync(task: SyncTask): Promise<void> {
+  try {
+    const leftConn = task.leftConnectionId === BUILTIN_LOCAL_ID
+      ? BUILTIN_LOCAL
+      : await connectionStore.getResolved(task.leftConnectionId)
+    const rightConn = task.rightConnectionId === BUILTIN_LOCAL_ID
+      ? BUILTIN_LOCAL
+      : await connectionStore.getResolved(task.rightConnectionId)
+    if (!leftConn || !rightConn) return
+
+    const leftProvider = createProvider(leftConn)
+    const rightProvider = createProvider(rightConn)
+
+    const onProgress = (p: unknown): void => sendToRenderer(IPC.evtSyncProgress, p)
+    syncEngine.on('progress', onProgress)
+    try {
+      const items = await syncEngine.scan(task.id, task, leftProvider, rightProvider)
+      const stats = await syncEngine.execute(task.id, task, items, leftProvider, rightProvider)
+      const result = stats.errors > 0 ? (stats.errors >= stats.copied + stats.deleted ? 'error' : 'partial') : 'success'
+      await syncStore.updateTaskResult(task.id, result, stats)
+      log.info('sync', `Scheduled sync "${task.name}" — ${stats.copied} copied, ${stats.errors} errors`)
+
+      const title = result === 'success' ? `Sync Complete: ${task.name}` : `Sync Issues: ${task.name}`
+      const body = `${stats.copied} copied, ${stats.deleted} deleted${stats.errors > 0 ? `, ${stats.errors} errors` : ''}`
+      if (Notification.isSupported()) new Notification({ title, body }).show()
+    } finally {
+      syncEngine.removeListener('progress', onProgress)
+    }
+  } catch (err) {
+    log.error('sync', `Scheduled sync "${task.name}" failed: ${(err as Error).message}`)
+  }
+}
+
+function scheduleSync(): void {
+  // Clear all existing timers and rebuild from current task list.
+  for (const timer of syncTimers.values()) clearInterval(timer)
+  syncTimers.clear()
+
+  void (async () => {
+    const tasks = await syncStore.getAll()
+    const now = new Date()
+
+    for (const task of tasks) {
+      if (!task.enabled || !task.schedule) continue
+      const { type, intervalMinutes } = task.schedule
+
+      if (type === 'on-launch') {
+        // Run immediately (slight delay so the app finishes loading)
+        setTimeout(() => void runScheduledSync(task), 5000)
+      } else if (type === 'interval' && intervalMinutes && intervalMinutes > 0) {
+        const ms = intervalMinutes * 60 * 1000
+        const timer = setInterval(() => void runScheduledSync(task), ms)
+        syncTimers.set(task.id, timer)
+      } else if (type === 'daily' || type === 'weekly' || type === 'monthly') {
+        // Check every minute if it's time to run
+        const timer = setInterval(() => {
+          const n = new Date()
+          const [hh, mm] = (task.schedule?.time ?? '00:00').split(':').map(Number)
+          if (n.getHours() !== hh || n.getMinutes() !== mm) return
+          if (type === 'weekly' && n.getDay() !== (task.schedule?.weekDay ?? 0)) return
+          if (type === 'monthly' && n.getDate() !== (task.schedule?.monthDay ?? 1)) return
+          void runScheduledSync(task)
+        }, 60_000)
+        syncTimers.set(task.id, timer)
+        void now // suppress unused warning
+      }
+    }
+  })()
+}
+
+// ── System tray ───────────────────────────────────────────────────────────────
+let tray: Tray | null = null
+
+function buildTrayMenu(): void {
+  if (!tray) return
+  const menu = Menu.buildFromTemplate([
+    {
+      label: 'Open Conduit',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show()
+          mainWindow.focus()
+        } else {
+          void createWindow()
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit Conduit',
+      click: () => {
+        quitInProgress = true
+        closeAllProviders()
+        void unmountAll()
+        app.quit()
+      }
+    }
+  ])
+  tray.setContextMenu(menu)
+}
+
 app.whenReady().then(async () => {
   // In dev, show the real app icon in the Dock (packaged builds get it from the
   // app bundle via electron-builder's build/icon.png).
@@ -688,6 +897,26 @@ app.whenReady().then(async () => {
     }
   }
 
+  // System tray
+  try {
+    const iconPath = join(app.getAppPath(), 'build', 'icon.png')
+    let trayIcon = nativeImage.createFromPath(iconPath)
+    if (!trayIcon.isEmpty()) trayIcon = trayIcon.resize({ width: 16, height: 16 })
+    tray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon)
+    tray.setToolTip('Conduit')
+    buildTrayMenu()
+    tray.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isVisible()) mainWindow.focus()
+        else mainWindow.show()
+      } else {
+        void createWindow()
+      }
+    })
+  } catch {
+    // tray is optional — ignore failures
+  }
+
   registerIpc()
   await createWindow()
 
@@ -697,8 +926,11 @@ app.whenReady().then(async () => {
   transferEngine.setConcurrency(settings.transferConcurrency)
   log.info('app', `Conduit ${app.getVersion()} started`)
 
+  // Start scheduled syncs
+  scheduleSync()
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })
 })
 
