@@ -44,6 +44,7 @@ function makeBlank(): Omit<SyncTask, 'id' | 'createdAt'> {
     conflictResolution: 'newer',
     propagateDeletions: false,
     syncHiddenFiles: false,
+    includeRootFolder: false,
     schedule: null,
     enabled: true,
     lastRun: null,
@@ -212,7 +213,24 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
                   ))}
                 </div>
               </div>
-                    
+
+              <div className="st-field st-toggle-row">
+                <label>Include root folder</label>
+                <label className="st-toggle">
+                  <input
+                    type="checkbox"
+                    checked={form.includeRootFolder ?? false}
+                    onChange={(e) => setField('includeRootFolder', e.target.checked)}
+                  />
+                  <span className="st-toggle-slider" />
+                </label>
+                <span className="st-toggle-hint">
+                  {form.includeRootFolder
+                    ? 'Destination will contain the source folder itself'
+                    : "Destination will contain the source folder's contents"}
+                </span>
+              </div>
+
                     <div class="menu-sep sync-task"></div>
 
               <div className="st-field">
@@ -344,10 +362,6 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
                 </div>
               )}
 
-              <div className="st-field st-toggle-row">
-                <label>Launch Conduit at startup</label>
-                <LaunchAtStartupToggle />
-              </div>
             </>
           )}
 
@@ -365,23 +379,3 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
   )
 }
 
-function LaunchAtStartupToggle(): JSX.Element {
-  const [enabled, setEnabled] = useState(false)
-
-  useEffect(() => {
-    void window.conduit.sync.getLaunchAtStartup().then(setEnabled)
-  }, [])
-
-  async function toggle(): Promise<void> {
-    const next = !enabled
-    setEnabled(next)
-    await window.conduit.sync.setLaunchAtStartup(next)
-  }
-
-  return (
-    <label className="st-toggle">
-      <input type="checkbox" checked={enabled} onChange={() => void toggle()} />
-      <span className="st-toggle-slider" />
-    </label>
-  )
-}

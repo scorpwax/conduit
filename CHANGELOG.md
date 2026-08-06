@@ -12,7 +12,7 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
-## [1.21.0] — 2026-08-05
+## [1.21.0] — 2026-08-06
 
 ### Added
 - **File Sync** — full GoodSync-style sync engine accessible via the new "Sync Tasks" panel in the toolbar
@@ -26,6 +26,22 @@ _Work in progress lands here, then moves under a version heading on release._
   - **Hidden file filter**: "Include hidden files" toggle per task (default OFF — skips dotfiles and hidden directories)
   - **All providers supported**: local, S3/Wasabi, SFTP, SMB, FTP, WebDAV, Google Drive, OneDrive, Dropbox
   - Smart one-way scan: Copy/Mirror modes only list the source directory and stat destination paths individually, avoiding full scans of large destination folders
+  - **Include root folder** toggle per sync task — when enabled, files are placed inside a subfolder named after the source directory rather than directly at the destination root
+- **Settings panel** — new gear icon in the toolbar opens a dedicated settings modal
+  - Transfer concurrency with speed presets (Slow/Balanced/Fast/Custom)
+  - Default download folder picker
+  - Quit after transfers complete and auto-clear finished transfers toggles
+  - Show hidden files toggle
+  - Light/Dark theme toggle
+  - Launch at startup
+- **Enhanced activity log**
+  - Split date and time columns for easier scanning
+  - Color-coded category badges (Transfer, Sync, Connection, File System, App)
+  - Category filter chips
+  - Route/location column showing source → destination connection names
+  - Transfer speed reporting (e.g. `@ 34.2 MB/s`) and duration
+  - Horizontal scroll instead of truncation — full log lines always visible
+- **Auto-update notifications** — Conduit checks GitHub Releases on launch and shows a dismissible banner with a direct download link when a newer version is available (platform-correct installer: DMG on macOS, EXE on Windows)
 
 ## [1.20.1] — 2026-08-05
 

@@ -1,50 +1,57 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { LogEntry, LogLevel, AppSettings } from '@shared/types'
+import type { LogEntry, LogLevel, LogCategory, AppSettings } from '@shared/types'
 
 const MAX_ENTRIES = 2000
 
 const LEVELS: { key: LogLevel; label: string }[] = [
-  { key: 'info', label: 'Info' },
+  { key: 'info',    label: 'Info' },
   { key: 'success', label: 'Success' },
-  { key: 'warn', label: 'Warnings' },
-  { key: 'error', label: 'Errors' }
+  { key: 'warn',    label: 'Warnings' },
+  { key: 'error',   label: 'Errors' },
+]
+
+const CATEGORIES: { key: LogCategory; label: string }[] = [
+  { key: 'transfer',   label: 'Transfer' },
+  { key: 'sync',       label: 'Sync' },
+  { key: 'connection', label: 'Connection' },
+  { key: 'fs',         label: 'File System' },
+  { key: 'app',        label: 'App' },
 ]
 
 const DATE_RANGES = [
   { label: 'All time', value: 0 },
-  { label: 'Today', value: 1 },
-  { label: '7 days', value: 7 },
-  { label: '30 days', value: 30 },
+  { label: 'Today',    value: 1 },
+  { label: '7 days',   value: 7 },
+  { label: '30 days',  value: 30 },
 ]
 
 const RETENTION_OPTIONS = [
-  { days: 90, label: '3 months' },
+  { days: 90,  label: '3 months' },
   { days: 180, label: '6 months' },
   { days: 365, label: '1 year' },
-  { days: 0, label: 'Never delete' }
+  { days: 0,   label: 'Never delete' },
 ]
+
+const CAT_COLORS: Record<LogCategory, string> = {
+  transfer:   '#3b82f6',
+  sync:       '#a855f7',
+  connection: '#10b981',
+  fs:         '#f59e0b',
+  app:        '#6b7280',
+}
 
 interface Props {
   onClose: () => void
 }
 
-const CONCURRENCY_OPTIONS = [
-  { n: 1, label: '1 — Sequential (most stable, large files)' },
-  { n: 2, label: '2 — Recommended for large files (default)' },
-  { n: 3, label: '3 — Balanced' },
-  { n: 5, label: '5 — Fast (reliable connection)' },
-  { n: 8, label: '8 — Aggressive' },
-  { n: 10, label: '10 — Maximum' },
-]
-
 export function LogsPanel({ onClose }: Props): JSX.Element {
   const [entries, setEntries] = useState<LogEntry[]>([])
-  const [active, setActive] = useState<Set<LogLevel>>(new Set(['info', 'success', 'warn', 'error']))
+  const [activeLevels, setActiveLevels] = useState<Set<LogLevel>>(new Set(['info', 'success', 'warn', 'error']))
+  const [activeCats, setActiveCats] = useState<Set<LogCategory>>(new Set(CATEGORIES.map((c) => c.key)))
   const [search, setSearch] = useState('')
   const [dateRange, setDateRange] = useState(0)
   const [autoScroll, setAutoScroll] = useState(true)
   const [retention, setRetention] = useState<number>(180)
-  const [concurrency, setConcurrency] = useState<number>(2)
   const [copied, setCopied] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -53,7 +60,6 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
     void window.conduit.logs.getRecent(1000).then(setEntries)
     void window.conduit.settings.get().then((s: AppSettings) => {
       setRetention(s.logRetentionDays)
-      setConcurrency(s.transferConcurrency ?? 2)
     })
     const off = window.conduit.logs.onEntries((batch) => {
       setEntries((prev) => {
@@ -68,21 +74,29 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
     const q = search.trim().toLowerCase()
     const cutoff = dateRange > 0 ? Date.now() - dateRange * 24 * 60 * 60 * 1000 : 0
     return entries.filter((e) =>
-      active.has(e.level) &&
-      (!q || e.message.toLowerCase().includes(q)) &&
+      activeLevels.has(e.level) &&
+      activeCats.has(e.category) &&
+      (!q || e.message.toLowerCase().includes(q) || (e.route ?? '').toLowerCase().includes(q)) &&
       (cutoff === 0 || e.ts >= cutoff)
     )
-  }, [entries, active, search, dateRange])
+  }, [entries, activeLevels, activeCats, search, dateRange])
 
-  // Auto-scroll to newest when enabled.
   useEffect(() => {
     if (autoScroll && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
   }, [visible, autoScroll])
 
   function toggleLevel(level: LogLevel): void {
-    setActive((prev) => {
+    setActiveLevels((prev) => {
       const next = new Set(prev)
       next.has(level) ? next.delete(level) : next.add(level)
+      return next
+    })
+  }
+
+  function toggleCat(cat: LogCategory): void {
+    setActiveCats((prev) => {
+      const next = new Set(prev)
+      next.has(cat) ? next.delete(cat) : next.add(cat)
       return next
     })
   }
@@ -90,11 +104,6 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
   async function changeRetention(days: number): Promise<void> {
     setRetention(days)
     await window.conduit.settings.set({ logRetentionDays: days })
-  }
-
-  async function changeConcurrency(n: number): Promise<void> {
-    setConcurrency(n)
-    await window.conduit.settings.set({ transferConcurrency: n })
   }
 
   async function clearLog(): Promise<void> {
@@ -108,17 +117,32 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
       <div className="logs-panel" onMouseDown={(e) => e.stopPropagation()}>
         <div className="logs-header">
           <span className="logs-title">Activity Log</span>
+
           <div className="logs-chips">
             {LEVELS.map((l) => (
               <button
                 key={l.key}
-                className={`chip ${l.key} ${active.has(l.key) ? 'on' : ''}`}
+                className={`chip ${l.key} ${activeLevels.has(l.key) ? 'on' : ''}`}
                 onClick={() => toggleLevel(l.key)}
               >
                 {l.label}
               </button>
             ))}
           </div>
+
+          <div className="logs-chips">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.key}
+                className={`chip cat-chip ${activeCats.has(c.key) ? 'on' : ''}`}
+                style={{ '--cat-color': CAT_COLORS[c.key] } as React.CSSProperties}
+                onClick={() => toggleCat(c.key)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+
           <div className="logs-chips">
             {DATE_RANGES.map((r) => (
               <button
@@ -130,17 +154,17 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
               </button>
             ))}
           </div>
+
           <input
             className="logs-search"
-            placeholder="Search…"
+            placeholder="Search logs..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+
           <div className="spacer" />
           {copied && <span className="logs-copied">Copied to Clipboard</span>}
-          <button className="iconbtn" title="Close" onClick={onClose}>
-            ✕
-          </button>
+          <button className="iconbtn" title="Close" onClick={onClose}>✕</button>
         </div>
 
         <div className="logs-list" ref={listRef} onWheel={() => setAutoScroll(false)}>
@@ -153,17 +177,34 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
                 className={`log-row ${e.level}`}
                 title="Click to copy"
                 onClick={() => {
-                  const line = `${fmtTime(e.ts)}  ${e.level.toUpperCase().padEnd(7)}  ${e.category.padEnd(12)}  ${e.message}`
-                  void navigator.clipboard.writeText(line)
+                  const parts = [fmtTime(e.ts), e.level.toUpperCase(), e.category, e.message]
+                  if (e.route) parts.push(`[${e.route}]`)
+                  if (e.speedBps) parts.push(`@ ${fmtSpeed(e.speedBps)}`)
+                  void navigator.clipboard.writeText(parts.join('  '))
                   setCopied(true)
                   if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
                   copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
                 }}
               >
-                <span className="log-time">{fmtTime(e.ts)}</span>
+                <span className="log-date">{fmtDate(e.ts)}</span>
+                <span className="log-time">{fmtTimeOnly(e.ts)}</span>
+                <span
+                  className="log-cat"
+                  style={{ '--cat-color': CAT_COLORS[e.category] } as React.CSSProperties}
+                >
+                  {e.category}
+                </span>
                 <span className={`log-level ${e.level}`}>{e.level.toUpperCase()}</span>
-                <span className="log-cat">{e.category}</span>
-                <span className="log-msg">{e.message}</span>
+                <span className="log-route">{e.route ?? '—'}</span>
+                <span className="log-msg">
+                  {e.message}
+                  {e.speedBps != null && (
+                    <span className="log-speed"> @ {fmtSpeed(e.speedBps)}</span>
+                  )}
+                  {e.durationMs != null && (
+                    <span className="log-duration"> ({fmtDuration(e.durationMs)})</span>
+                  )}
+                </span>
               </div>
             ))
           )}
@@ -174,17 +215,7 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
             Keep logs:
             <select value={retention} onChange={(e) => changeRetention(Number(e.target.value))}>
               {RETENTION_OPTIONS.map((o) => (
-                <option key={o.days} value={o.days}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="logs-retention">
-            Concurrent transfers:
-            <select value={concurrency} onChange={(e) => changeConcurrency(Number(e.target.value))}>
-              {CONCURRENCY_OPTIONS.map(({ n, label }) => (
-                <option key={n} value={n}>{label}</option>
+                <option key={o.days} value={o.days}>{o.label}</option>
               ))}
             </select>
           </label>
@@ -200,25 +231,52 @@ export function LogsPanel({ onClose }: Props): JSX.Element {
           <button
             className="btn"
             onClick={() => {
-              const text = visible
-                .map((e) => `${fmtTime(e.ts)}  ${e.level.toUpperCase().padEnd(7)}  ${e.category.padEnd(12)}  ${e.message}`)
-                .join('\n')
+              const text = visible.map((e) => {
+                const parts = [fmtTime(e.ts), e.level.toUpperCase().padEnd(7), e.category.padEnd(12), e.message]
+                if (e.route)     parts.push(`[${e.route}]`)
+                if (e.speedBps)  parts.push(`@ ${fmtSpeed(e.speedBps)}`)
+                if (e.durationMs) parts.push(`(${fmtDuration(e.durationMs)})`)
+                return parts.join('  ')
+              }).join('\n')
               void window.conduit.logs.exportText(text)
             }}
           >
             Export…
           </button>
-          <button className="btn danger" onClick={clearLog}>
-            Clear
-          </button>
+          <button className="btn danger" onClick={clearLog}>Clear</button>
         </div>
       </div>
     </div>
   )
 }
 
-function fmtTime(ts: number): string {
+function fmtDate(ts: number): string {
+  const d = new Date(ts)
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())}`
+}
+
+function fmtTimeOnly(ts: number): string {
   const d = new Date(ts)
   const p = (n: number, w = 2): string => String(n).padStart(w, '0')
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`
+}
+
+function fmtTime(ts: number): string {
+  return `${fmtDate(ts)} ${fmtTimeOnly(ts)}`
+}
+
+function fmtSpeed(bps: number): string {
+  if (bps >= 1e9) return `${(bps / 1e9).toFixed(1)} GB/s`
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} MB/s`
+  if (bps >= 1e3) return `${(bps / 1e3).toFixed(0)} KB/s`
+  return `${bps} B/s`
+}
+
+function fmtDuration(ms: number): string {
+  if (ms < 1000)  return `${ms}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  const m = Math.floor(ms / 60000)
+  const s = Math.round((ms % 60000) / 1000)
+  return `${m}m ${s}s`
 }

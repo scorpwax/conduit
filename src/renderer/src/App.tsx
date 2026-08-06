@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import type { Connection } from '@shared/types'
+import type { Connection, UpdateInfo } from '@shared/types'
 import { useStore } from './store'
 import { Pane } from './components/Pane'
 import { TransferPanel } from './components/TransferPanel'
@@ -9,6 +9,7 @@ import { LogsPanel } from './components/LogsPanel'
 import { DialogHost } from './components/DialogHost'
 import { Logo } from './components/Logo'
 import { SyncPanel } from './components/SyncPanel'
+import { SettingsModal } from './components/SettingsModal'
 
 export default function App(): JSX.Element {
 	const init = useStore((s) => s.init)
@@ -29,13 +30,17 @@ export default function App(): JSX.Element {
 	} | null>(null)
 	const [logsOpen, setLogsOpen] = useState(false)
 	const [syncOpen, setSyncOpen] = useState(false)
+	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [version, setVersion] = useState('')
 	const [transferPanelOpen, setTransferPanelOpen] = useState(false)
 	const [downloadDir, setDownloadDir] = useState<string>('')
+	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
 
 	useEffect(() => {
 		void window.conduit.app.getVersion().then(setVersion)
 		void window.conduit.settings.get().then((s) => setDownloadDir(s.downloadDir ?? ''))
+		const off = window.conduit.app.onUpdateAvailable(setUpdateInfo)
+		return off
 	}, [])
 
 	async function pickDownloadDir(): Promise<void> {
@@ -88,6 +93,14 @@ export default function App(): JSX.Element {
 			void window.conduit.app.notify({ title: 'Conduit — Transfers Complete', body: body || 'Done' })
 		}
 		prevAllFinishedRef.current = allFinished
+
+		// Auto-clear / auto-quit when all transfers finish.
+		if (allFinished) {
+			void window.conduit.settings.get().then((s) => {
+				if (s.clearTransfersAfterComplete) void window.conduit.transfer.clearFinished()
+				if (s.quitAfterTransfer) window.close()
+			})
+		}
 	}, [transfers])
 
 	// Apply the file-list font scale globally.
@@ -187,13 +200,16 @@ export default function App(): JSX.Element {
 					</div>
 				</div>
 				<div className="spacer" />
-				<button
-					className="btn ghost toolbtn download-folder"
-					title={downloadDir ? `Download folder: ${downloadDir}` : 'Set download folder'}
-					onClick={() => void pickDownloadDir()}
-				>
-					<span className="material-symbols-outlined">download_2</span> {downloadDir ? (downloadDir.split('/').pop() || downloadDir.split('\\').pop() || 'Downloads') : 'Set Downloads'}
-				</button>
+				{downloadDir && (
+					<button
+						className="btn ghost toolbtn download-folder"
+						title={`Download folder: ${downloadDir}`}
+						onClick={() => setSettingsOpen(true)}
+					>
+						<span className="material-symbols-outlined">folder</span>
+						{downloadDir.split('/').pop() || downloadDir.split('\\').pop() || 'Downloads'}
+					</button>
+				)}
 				<div className="font-controls" title="Font size (⌘+ / ⌘-)">
 					<button className="iconbtn" onClick={() => adjustFontScale(-0.1)} title="Smaller text">
 						A−
@@ -202,26 +218,14 @@ export default function App(): JSX.Element {
 						A+
 					</button>
 				</div>
-				<button
-					className="btn ghost toolbtn"
-					title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-					onClick={toggleTheme}
-				>
-					<span className="material-symbols-outlined">{theme === 'dark' ? 'light_mode' : 'dark_mode'}</span>
-					{theme === 'dark' ? 'Light' : 'Dark'}
-				</button>
-				<button
-					className={`btn ghost toolbtn ${showHidden ? 'active' : ''}`}
-					title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
-					onClick={toggleShowHidden}
-				>
-					{showHidden ? 'Hidden Files: On' : 'Hidden Files: Off'}
-				</button>
-				<button className="btn ghost toolbtn none" title="Sync Tasks" onClick={() => setSyncOpen(true)}>
+				<button className="btn ghost toolbtn" title="Sync Tasks" onClick={() => setSyncOpen(true)}>
 					<span className="material-symbols-outlined">sync</span> Sync
 				</button>
 				<button className="btn ghost toolbtn" title="Activity log" onClick={() => setLogsOpen(true)}>
 					<span className="material-symbols-outlined">article</span> Logs
+				</button>
+				<button className="btn ghost toolbtn" title="Settings" onClick={() => setSettingsOpen(true)}>
+					<span className="material-symbols-outlined">settings</span> Settings
 				</button>
 				<button
 					className="btn ghost toolbtn add-pane"
@@ -232,6 +236,28 @@ export default function App(): JSX.Element {
 					<span className="material-symbols-outlined">add</span> Add Pane
 				</button>
 			</div>
+
+			{updateInfo && (
+				<div className="update-banner">
+					<span className="material-symbols-outlined update-banner-icon">system_update_alt</span>
+					<span className="update-banner-text">
+						Conduit v{updateInfo.version} is available
+					</span>
+					<button
+						className="btn update-banner-download"
+						onClick={() => void window.conduit.app.openExternal(updateInfo.downloadUrl)}
+					>
+						Download
+					</button>
+					<button
+						className="iconbtn update-banner-dismiss"
+						title="Dismiss"
+						onClick={() => setUpdateInfo(null)}
+					>
+						✕
+					</button>
+				</div>
+			)}
 
 			<div className="workspace">
 				<div className="panes" ref={containerRef}>
@@ -264,6 +290,14 @@ export default function App(): JSX.Element {
 
 			{logsOpen && <LogsPanel onClose={() => setLogsOpen(false)} />}
 			{syncOpen && <SyncPanel onClose={() => setSyncOpen(false)} />}
+			{settingsOpen && (
+				<SettingsModal
+					onClose={() => setSettingsOpen(false)}
+					onDownloadDirChange={setDownloadDir}
+					showHidden={showHidden}
+					onToggleHidden={toggleShowHidden}
+				/>
+			)}
 
 			<DialogHost />
 

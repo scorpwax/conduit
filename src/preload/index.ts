@@ -18,7 +18,8 @@ import type {
   SyncTask,
   SyncPreviewItem,
   SyncRunStats,
-  SyncProgress
+  SyncProgress,
+  UpdateInfo
 } from '../shared/types'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
@@ -131,7 +132,14 @@ const api = {
     notify: (args: { title: string; body: string }): Promise<void> =>
       ipcRenderer.invoke(IPC.appNotify, args),
     getUiState: (): Promise<UiState | null> => ipcRenderer.invoke(IPC.appGetUiState),
-    saveUiState: (state: UiState): Promise<void> => ipcRenderer.invoke(IPC.appSaveUiState, state)
+    saveUiState: (state: UiState): Promise<void> => ipcRenderer.invoke(IPC.appSaveUiState, state),
+    checkForUpdates: (): Promise<UpdateInfo | null> => ipcRenderer.invoke(IPC.appCheckUpdates),
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.appOpenExternal, url),
+    onUpdateAvailable: (cb: (info: UpdateInfo) => void): (() => void) => {
+      const listener = (_e: unknown, info: UpdateInfo): void => cb(info)
+      ipcRenderer.on(IPC.evtUpdateAvailable, listener)
+      return () => ipcRenderer.removeListener(IPC.evtUpdateAvailable, listener)
+    }
   },
   sync: {
     getTasks: (): Promise<SyncTask[]> => ipcRenderer.invoke(IPC.syncGetTasks),

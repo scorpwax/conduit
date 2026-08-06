@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import type { TransferItem, TransferRequest } from '@shared/types'
 import { getProvider, type Provider } from '../providers'
+import { connectionStore } from '../store'
 import { log } from '../logger'
 
 function fmtBytes(bytes: number): string {
@@ -345,6 +346,19 @@ class TransferEngine extends EventEmitter {
     }
   }
 
+  private connNameCache = new Map<string, string>()
+
+  private async resolveConnName(id: string): Promise<string> {
+    if (this.connNameCache.has(id)) return this.connNameCache.get(id)!
+    try {
+      const all = await connectionStore.getAll()
+      for (const c of all) this.connNameCache.set(c.id, c.name)
+      return this.connNameCache.get(id) ?? id
+    } catch {
+      return id
+    }
+  }
+
   private async run(item: TransferItem): Promise<void> {
     if (this.canceled.has(item.id)) return
     item.status = 'transferring'
@@ -405,7 +419,20 @@ class TransferEngine extends EventEmitter {
         }
         item.status = 'done'
         item.bytesDone = item.bytesTotal
-        log.success('transfer', `Copied "${item.name}" (${fmtBytes(item.bytesTotal)}) → "${item.dest.path}"`)
+        const durationMs = item.startedAt ? Date.now() - item.startedAt : undefined
+        const avgSpeedBps = (durationMs && durationMs > 0 && item.bytesTotal > 0)
+          ? Math.round(item.bytesTotal / (durationMs / 1000))
+          : undefined
+        const [srcName, dstName] = await Promise.all([
+          this.resolveConnName(item.source.connectionId),
+          this.resolveConnName(item.dest.connectionId)
+        ])
+        log.success('transfer', `Copied "${item.name}" (${fmtBytes(item.bytesTotal)})`, {
+          route: `${srcName} → ${dstName}`,
+          bytes: item.bytesTotal,
+          speedBps: avgSpeedBps,
+          durationMs
+        })
       }
     } catch (err) {
       if (this.canceled.has(item.id)) {
@@ -414,7 +441,14 @@ class TransferEngine extends EventEmitter {
       } else {
         item.status = 'error'
         item.error = (err as Error).message
-        log.error('transfer', `Failed "${item.name}": ${item.error}`)
+        const [srcName, dstName] = await Promise.all([
+          this.resolveConnName(item.source.connectionId),
+          this.resolveConnName(item.dest.connectionId)
+        ])
+        log.error('transfer', `Failed "${item.name}": ${item.error}`, {
+          route: `${srcName} → ${dstName}`,
+          bytes: item.bytesTotal
+        })
       }
     } finally {
       this.activeStreams.delete(item.id)

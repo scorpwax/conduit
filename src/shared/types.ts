@@ -215,7 +215,7 @@ export interface ConnectionTestResult {
 }
 
 export type LogLevel = 'info' | 'success' | 'warn' | 'error'
-export type LogCategory = 'app' | 'transfer' | 'connection' | 'fs'
+export type LogCategory = 'app' | 'transfer' | 'connection' | 'fs' | 'sync'
 
 export interface LogEntry {
   /** Epoch milliseconds. */
@@ -223,6 +223,14 @@ export interface LogEntry {
   level: LogLevel
   category: LogCategory
   message: string
+  /** "Source Name → Dest Name" for transfer/sync entries. */
+  route?: string
+  /** File size in bytes (transfer entries). */
+  bytes?: number
+  /** Average transfer speed in bytes/sec. */
+  speedBps?: number
+  /** Duration in milliseconds. */
+  durationMs?: number
 }
 
 /** User-configurable settings persisted on the local machine. */
@@ -235,6 +243,10 @@ export interface AppSettings {
   skipQuitConfirm?: boolean
   /** Default local folder for "Download" context menu action. */
   downloadDir?: string
+  /** Quit the app automatically when the transfer queue empties. */
+  quitAfterTransfer?: boolean
+  /** Clear finished transfers from the queue automatically when all transfers complete. */
+  clearTransfersAfterComplete?: boolean
 }
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
@@ -271,6 +283,7 @@ export interface SyncTask {
   conflictResolution: SyncConflictResolution
   propagateDeletions: boolean
   syncHiddenFiles: boolean
+  includeRootFolder: boolean
   schedule: SyncSchedule | null
   enabled: boolean
   lastRun: string | null
@@ -325,6 +338,13 @@ export interface FolderTreeResult {
   totalSize: number
   /** True when the folder exceeded the 25 000-item limit and results are partial. */
   truncated: boolean
+}
+
+export interface UpdateInfo {
+  version: string
+  downloadUrl: string
+  releaseUrl: string
+  releaseNotes: string
 }
 
 /** UI layout state saved on quit and restored on next launch. */

@@ -74,13 +74,18 @@ class Logger {
     const stamp =
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
       `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
-    // Single-line, fixed columns so it's readable in a text editor and easy to parse back.
-    return `${stamp}  ${entry.level.toUpperCase().padEnd(7)}  ${entry.category.padEnd(10)}  ${entry.message.replace(/\s*\n\s*/g, ' ')}`
+    const base = `${stamp}  ${entry.level.toUpperCase().padEnd(7)}  ${entry.category.padEnd(10)}  ${entry.message.replace(/\s*\n\s*/g, ' ')}`
+    const meta: Record<string, unknown> = {}
+    if (entry.route)     meta.route = entry.route
+    if (entry.bytes !== undefined) meta.bytes = entry.bytes
+    if (entry.speedBps !== undefined) meta.speedBps = entry.speedBps
+    if (entry.durationMs !== undefined) meta.durationMs = entry.durationMs
+    return Object.keys(meta).length ? `${base}  ${JSON.stringify(meta)}` : base
   }
 
   /** Public entry point. Cheap: buffers and schedules async flush/emit. */
-  log(level: LogLevel, category: LogCategory, message: string): void {
-    const entry: LogEntry = { ts: Date.now(), level, category, message }
+  log(level: LogLevel, category: LogCategory, message: string, meta?: Partial<Pick<LogEntry, 'route' | 'bytes' | 'speedBps' | 'durationMs'>>): void {
+    const entry: LogEntry = { ts: Date.now(), level, category, message, ...meta }
     const now = new Date(entry.ts)
     const dayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`
 
@@ -150,11 +155,21 @@ class Logger {
     const m = line.match(/^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3})\s+(\w+)\s+(\w+)\s+(.*)$/)
     if (!m) return null
     const ts = new Date(m[1].replace(' ', 'T')).getTime()
+    let message = m[4]
+    let meta: Partial<Pick<LogEntry, 'route' | 'bytes' | 'speedBps' | 'durationMs'>> = {}
+    const jsonIdx = message.lastIndexOf('  {')
+    if (jsonIdx !== -1) {
+      try {
+        meta = JSON.parse(message.slice(jsonIdx + 2)) as typeof meta
+        message = message.slice(0, jsonIdx)
+      } catch { /* malformed meta — keep full message */ }
+    }
     return {
       ts: isNaN(ts) ? Date.now() : ts,
       level: m[2].toLowerCase() as LogLevel,
       category: m[3].toLowerCase() as LogCategory,
-      message: m[4]
+      message,
+      ...meta
     }
   }
 
@@ -237,10 +252,12 @@ class Logger {
 
 export const logger = new Logger()
 
+type LogMeta = Partial<Pick<LogEntry, 'route' | 'bytes' | 'speedBps' | 'durationMs'>>
+
 /** Convenience wrappers. */
 export const log = {
-  info: (c: LogCategory, m: string) => logger.log('info', c, m),
-  success: (c: LogCategory, m: string) => logger.log('success', c, m),
-  warn: (c: LogCategory, m: string) => logger.log('warn', c, m),
-  error: (c: LogCategory, m: string) => logger.log('error', c, m)
+  info:    (c: LogCategory, m: string, meta?: LogMeta) => logger.log('info',    c, m, meta),
+  success: (c: LogCategory, m: string, meta?: LogMeta) => logger.log('success', c, m, meta),
+  warn:    (c: LogCategory, m: string, meta?: LogMeta) => logger.log('warn',    c, m, meta),
+  error:   (c: LogCategory, m: string, meta?: LogMeta) => logger.log('error',   c, m, meta),
 }

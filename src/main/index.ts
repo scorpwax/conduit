@@ -20,6 +20,7 @@ import { GOOGLE_OAUTH } from './providers/gdrive'
 import { MICROSOFT_OAUTH } from './providers/onedrive'
 import { DROPBOX_OAUTH } from './providers/dropbox'
 import { FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI, FRAMEIO_PROTOCOL_SCHEME } from './providers/frameio'
+import { checkForUpdates } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -740,6 +741,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC.syncSetLaunchAtStartup, (_e, enable: boolean) => {
     app.setLoginItemSettings({ openAtLogin: enable })
   })
+
+  ipcMain.handle(IPC.appCheckUpdates, async () => {
+    return checkForUpdates()
+  })
+
+  ipcMain.handle(IPC.appOpenExternal, (_e, url: string) => {
+    void shell.openExternal(url)
+  })
 }
 
 // Suppress Chromium GPU/EGL process log noise (EGL driver warnings) in dev mode.
@@ -920,6 +929,12 @@ app.whenReady().then(async () => {
 
   // Start scheduled syncs
   scheduleSync()
+
+  // Check for updates in the background; push to renderer if a newer version is found.
+  setTimeout(async () => {
+    const info = await checkForUpdates()
+    if (info) sendToRenderer(IPC.evtUpdateAvailable, info)
+  }, 5000)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()

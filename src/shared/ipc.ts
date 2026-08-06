@@ -69,9 +69,13 @@ export const IPC = {
   syncGetLaunchAtStartup: 'sync:getLaunchAtStartup',
   syncSetLaunchAtStartup: 'sync:setLaunchAtStartup',
 
+  appCheckUpdates: 'app:checkUpdates',
+  appOpenExternal: 'app:openExternal',
+
   // main -> renderer push events
   evtTransferUpdate: 'evt:transfer:update',
   evtTransferAdded: 'evt:transfer:added',
   evtLog: 'evt:log',
-  evtSyncProgress: 'evt:sync:progress'
+  evtSyncProgress: 'evt:sync:progress',
+  evtUpdateAvailable: 'evt:update:available'
 } as const

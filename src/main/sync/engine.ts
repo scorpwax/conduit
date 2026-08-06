@@ -356,6 +356,16 @@ class SyncEngine extends EventEmitter {
     rightProvider: Provider,
     stats: SyncRunStats
   ): Promise<void> {
+    // When includeRootFolder is on, wrap destination paths inside the source folder name.
+    const leftFolderName = task.leftPath.split('/').filter(Boolean).pop() ?? ''
+    const rightFolderName = task.rightPath.split('/').filter(Boolean).pop() ?? ''
+
+    function dstRelPath(action: SyncAction, relPath: string): string {
+      if (!task.includeRootFolder) return relPath
+      const prefix = action === 'copy-to-right' ? leftFolderName : rightFolderName
+      return prefix ? `${prefix}/${relPath}` : relPath
+    }
+
     if (item.action === 'copy-to-right' || item.action === 'copy-to-left') {
       const srcProvider = item.action === 'copy-to-right' ? leftProvider : rightProvider
       const dstProvider = item.action === 'copy-to-right' ? rightProvider : leftProvider
@@ -363,23 +373,24 @@ class SyncEngine extends EventEmitter {
       const dstRoot = item.action === 'copy-to-right' ? task.rightPath : task.leftPath
 
       const srcPath = buildAbsPath(srcProvider, srcRoot, item.path)
+      const dstRel = dstRelPath(item.action, item.path)
 
-      // Ensure parent directory exists on destination
-      const slashIdx = item.path.lastIndexOf('/')
+      // Ensure parent directories exist on destination
+      const slashIdx = dstRel.lastIndexOf('/')
       if (slashIdx > 0) {
-        const relParent = item.path.slice(0, slashIdx)
+        const relParent = dstRel.slice(0, slashIdx)
         const dstParent = buildAbsPath(dstProvider, dstRoot, relParent)
         try { await dstProvider.mkdir(dstParent) } catch { /* may already exist */ }
       }
 
       if (item.conflictWinner === 'keep-both') {
-        // Copy left to right with a "_left" suffix before extension
         const dot = item.path.lastIndexOf('.')
         const hasExt = dot > item.path.lastIndexOf('/')
         const base = hasExt ? item.path.slice(0, dot) : item.path
         const ext = hasExt ? item.path.slice(dot) : ''
         const conflictPath = buildAbsPath(leftProvider, task.leftPath, item.path)
-        const destPath = buildAbsPath(rightProvider, task.rightPath, `${base}_left${ext}`)
+        const conflictDstRel = dstRelPath('copy-to-right', `${base}_left${ext}`)
+        const destPath = buildAbsPath(rightProvider, task.rightPath, conflictDstRel)
         const { stream, size } = await leftProvider.createReadStream(conflictPath)
         let lastBytes = 0
         await rightProvider.writeFile(destPath, stream, size, (b) => {
@@ -388,7 +399,7 @@ class SyncEngine extends EventEmitter {
         })
         stats.conflicts++
       } else {
-        const dstPath = buildAbsPath(dstProvider, dstRoot, item.path)
+        const dstPath = buildAbsPath(dstProvider, dstRoot, dstRel)
         const { stream, size } = await srcProvider.createReadStream(srcPath)
         let lastBytes = 0
         await dstProvider.writeFile(dstPath, stream, size, (b) => {
