@@ -175,7 +175,7 @@ export function BatchRenameModal({ entries, allEntries, connectionId, onClose, o
             <h2>Batch Rename</h2>
             <p className="modal-sub">{entries.length} item{entries.length !== 1 ? 's' : ''} selected</p>
           </div>
-          <button className="icon-btn" onClick={onClose} style={{ marginLeft: 'auto' }}>
+          <button className="iconbtn" onClick={onClose} style={{ marginLeft: 'auto' }}>
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>

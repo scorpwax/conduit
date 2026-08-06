@@ -24,16 +24,16 @@ interface Props {
 }
 
 const TYPES: { type: ConnectionType; name: string; sub: string; enabled: boolean }[] = [
-  { type: 'local', name: 'Local / External', sub: 'Drives & folders', enabled: true },
-  { type: 's3', name: 'Amazon S3', sub: 'AWS & compatible', enabled: true },
+  { type: 'local', name: 'Local / External', sub: 'Drives & Folders', enabled: true },
+  { type: 's3', name: 'Amazon S3', sub: 'Amazon AWS', enabled: true },
   { type: 'wasabi', name: 'Wasabi', sub: 'S3-compatible cloud', enabled: true },
-  { type: 'sftp', name: 'Computer (SFTP)', sub: 'Another Mac/PC via SSH', enabled: true },
-  { type: 'smb', name: 'SMB Share', sub: 'NAS & Windows shares', enabled: true },
+  { type: 'sftp', name: 'Computer (SFTP)', sub: 'Mac/PC Connection via SSH', enabled: true },
+  { type: 'smb', name: 'SMB Share', sub: 'NAS & Windows Shares', enabled: true },
   { type: 'ftp', name: 'FTP / FTPS', sub: 'File Transfer Protocol', enabled: true },
-  { type: 'webdav', name: 'WebDAV', sub: 'Nextcloud, ownCloud, Box…', enabled: true },
-  { type: 'gdrive', name: 'Google Drive', sub: 'via your OAuth app', enabled: true },
-  { type: 'onedrive', name: 'OneDrive', sub: 'Microsoft 365', enabled: true },
-  { type: 'dropbox', name: 'Dropbox', sub: 'via your OAuth app', enabled: true },
+  { type: 'webdav', name: 'WebDAV', sub: 'Nextcloud, ownCloud, Box...', enabled: true },
+  { type: 'gdrive', name: 'Google Drive', sub: 'Not Connected. Coming Soon...', enabled: true },
+  { type: 'onedrive', name: 'OneDrive', sub: 'Not Connected. Coming Soon...', enabled: true },
+  { type: 'dropbox', name: 'Dropbox', sub: 'Not Connected. Coming Soon...', enabled: true },
   { type: 'frameio', name: 'Frame.io', sub: 'Adobe Frame.io V4', enabled: true }
 ]
 

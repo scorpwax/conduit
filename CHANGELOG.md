@@ -12,6 +12,21 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.21.0] — 2026-08-05
+
+### Added
+- **File Sync** — full GoodSync-style sync engine accessible via the new "Sync Tasks" panel in the toolbar
+  - **Four sync modes**: Mirror (one-way, propagate deletions), One-Way Copy (left → right, never delete), Two-Way Sync (both directions, newer wins), Two-Way Merge (both directions, never delete)
+  - **Conflict resolution**: Newer wins, Larger wins, Keep both (renames left copy with `_left` suffix), or Ask (skips during unattended runs)
+  - **Sync database**: three-way diff (left vs. right vs. last-known state) stored per-task in `userData/sync-db/{taskId}.json` — detects independent changes on both sides
+  - **Preview before execute**: full file list with SOURCE → action → DESTINATION layout; per-file exclude, direction flip (two-way), and conflict resolution overrides
+  - **Scheduled sync**: interval, daily, weekly, monthly, on-launch, or on-connection triggers; runs in the background with system notifications on completion
+  - **System tray**: background sync indicator; click to restore window
+  - **Launch at startup** toggle for scheduled tasks (macOS and Windows)
+  - **Hidden file filter**: "Include hidden files" toggle per task (default OFF — skips dotfiles and hidden directories)
+  - **All providers supported**: local, S3/Wasabi, SFTP, SMB, FTP, WebDAV, Google Drive, OneDrive, Dropbox
+  - Smart one-way scan: Copy/Mirror modes only list the source directory and stat destination paths individually, avoiding full scans of large destination folders
+
 ## [1.20.1] — 2026-08-05
 
 ### Fixed

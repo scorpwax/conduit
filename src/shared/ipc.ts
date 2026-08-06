@@ -60,8 +60,18 @@ export const IPC = {
   appGetUiState: 'app:getUiState',
   appSaveUiState: 'app:saveUiState',
 
+  syncGetTasks: 'sync:getTasks',
+  syncSaveTask: 'sync:saveTask',
+  syncDeleteTask: 'sync:deleteTask',
+  syncRunPreview: 'sync:runPreview',
+  syncExecute: 'sync:execute',
+  syncCancel: 'sync:cancel',
+  syncGetLaunchAtStartup: 'sync:getLaunchAtStartup',
+  syncSetLaunchAtStartup: 'sync:setLaunchAtStartup',
+
   // main -> renderer push events
   evtTransferUpdate: 'evt:transfer:update',
   evtTransferAdded: 'evt:transfer:added',
-  evtLog: 'evt:log'
+  evtLog: 'evt:log',
+  evtSyncProgress: 'evt:sync:progress'
 } as const
