@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.20.1] — 2026-08-05
+
+### Fixed
+- Fixed issue that was causing Conduit to crash on minimization
+
 ## [1.20.0] — 2026-08-03
 
 ### Added

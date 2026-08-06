@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification, powerSaveBlocker } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
@@ -35,12 +35,25 @@ const sendToRenderer = (channel: string, payload: unknown): void => {
 // Updates are already throttled by the engine's 250ms progress timer — send directly.
 transferEngine.on('update', (items) => {
   sendToRenderer(IPC.evtTransferUpdate, items)
+  const all = transferEngine.getAll()
   // Use full queue (not just changed items) so a single-file completion event
   // doesn't incorrectly flip the dock badge to "all done" mid-batch.
-  updateSystemProgress(transferEngine.getAll())
+  updateSystemProgress(all)
+  syncPowerBlocker(all)
 })
 
 let dockClearTimer: ReturnType<typeof setTimeout> | null = null
+let powerBlockerId: number | null = null
+
+function syncPowerBlocker(items: import('@shared/types').TransferItem[]): void {
+  const hasActive = items.some(i => i.status === 'transferring' || i.status === 'queued')
+  if (hasActive && powerBlockerId === null) {
+    powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+  } else if (!hasActive && powerBlockerId !== null) {
+    powerSaveBlocker.stop(powerBlockerId)
+    powerBlockerId = null
+  }
+}
 let prevAllDone = false
 
 function updateSystemProgress(items: import('@shared/types').TransferItem[]): void {
@@ -122,11 +135,16 @@ async function createWindow(): Promise<void> {
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       sandbox: false,
-      contextIsolation: true
+      contextIsolation: true,
+      backgroundThrottling: false
     }
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  if (process.platform === 'win32') {
+    mainWindow.on('restore', () => mainWindow?.webContents.invalidate())
+  }
 
   // Intercept window close (red X and Cmd+Q both come through here after before-quit sets quitInProgress).
   mainWindow.on('close', (e) => {
