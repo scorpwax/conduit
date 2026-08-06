@@ -22,6 +22,7 @@ mac:
   icon: build/icon.png
   identity: "MICHAEL ERIC WAX (UMCA2LMNU5)"
 dmg:
+  artifactName: Conduit-mac_${version}.dmg
   contents:
     - x: 130
       y: 220
@@ -38,5 +39,6 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  artifactName: Conduit-win_${version}.exe
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
