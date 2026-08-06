@@ -8,6 +8,8 @@ files:
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   - '!{.eslintrc,.prettierrc,.gitignore}'
+  - '!frameio-api-main/**'
+  - '!.phcode.json'
 extraResources:
   - from: CHANGELOG.md
     to: CHANGELOG.md
