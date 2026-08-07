@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { SyncRunStats, SyncTask } from '@shared/types'
+import { useStore } from '../store'
 import { SyncTaskModal } from './SyncTaskModal'
 import { SyncPreviewModal } from './SyncPreviewModal'
 
 interface Props {
   onClose: () => void
+  onOpenTransferPanel?: () => void
 }
 
 function fmtRelTime(iso: string | null): string {
@@ -63,12 +65,17 @@ function formatSchedule(task: SyncTask): string {
 
 void SCHEDULE_LABELS // suppress unused warning
 
-export function SyncPanel({ onClose }: Props): JSX.Element {
+export function SyncPanel({ onClose, onOpenTransferPanel }: Props): JSX.Element {
   const [tasks, setTasks] = useState<SyncTask[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [taskModal, setTaskModal] = useState<{ task: SyncTask | null } | null>(null)
   const [previewTask, setPreviewTask] = useState<SyncTask | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const syncQueue = useStore((s) => s.syncQueue)
+  const addToSyncQueue = useStore((s) => s.addToSyncQueue)
+  const removeFromSyncQueue = useStore((s) => s.removeFromSyncQueue)
+  const clearSyncQueue = useStore((s) => s.clearSyncQueue)
+  const runSyncQueue = useStore((s) => s.runSyncQueue)
 
   useEffect(() => {
     void window.conduit.sync.getTasks().then((t) => {
@@ -99,6 +106,22 @@ export function SyncPanel({ onClose }: Props): JSX.Element {
   async function toggleEnabled(task: SyncTask): Promise<void> {
     const updated = await window.conduit.sync.saveTask({ ...task, enabled: !task.enabled })
     setTasks(updated)
+  }
+
+  async function duplicateTask(task: SyncTask): Promise<void> {
+    const now = new Date().toISOString()
+    const copy: SyncTask = {
+      ...task,
+      id: crypto.randomUUID(),
+      name: `${task.name} (Copy)`,
+      createdAt: now,
+      lastRun: null,
+      lastRunResult: null,
+      lastRunStats: null
+    }
+    const updated = await window.conduit.sync.saveTask(copy)
+    setTasks(updated)
+    setSelectedId(copy.id)
   }
 
   function handlePreviewComplete(stats: SyncRunStats): void {
@@ -169,8 +192,22 @@ export function SyncPanel({ onClose }: Props): JSX.Element {
                   <button className="btn ghost" onClick={() => void toggleEnabled(selected)}>
                     {selected.enabled ? 'Disable' : 'Enable'}
                   </button>
+                  <button className="btn ghost" onClick={() => void duplicateTask(selected)}>
+                    Duplicate
+                  </button>
                   <button className="btn ghost" onClick={() => setTaskModal({ task: selected })}>
                     Edit
+                  </button>
+                  <button
+                    className="btn ghost"
+                    title={syncQueue.find((t) => t.id === selected.id) ? 'Remove from queue' : 'Add to sync queue'}
+                    onClick={() =>
+                      syncQueue.find((t) => t.id === selected.id)
+                        ? removeFromSyncQueue(selected.id)
+                        : addToSyncQueue(selected)
+                    }
+                  >
+                    {syncQueue.find((t) => t.id === selected.id) ? '− Queue' : '+ Queue'}
                   </button>
                   <button
                     className="btn ghost danger"
@@ -250,6 +287,22 @@ export function SyncPanel({ onClose }: Props): JSX.Element {
         </div>
       </div>
 
+      {syncQueue.length > 0 && (
+        <div className="sync-queue-bar">
+          <span className="sync-queue-label">
+            <span className="material-symbols-outlined">queue</span>
+            Queue: {syncQueue.map((t) => t.name).join(' → ')}
+          </span>
+          <div className="sync-queue-actions">
+            <button className="btn ghost" onClick={clearSyncQueue}>Clear</button>
+            <button className="btn primary" onClick={() => { runSyncQueue(); onClose() }}>
+              <span className="material-symbols-outlined">play_arrow</span>
+              Run Queue
+            </button>
+          </div>
+        </div>
+      )}
+
       {taskModal !== null && (
         <SyncTaskModal
           task={taskModal.task}
@@ -265,6 +318,10 @@ export function SyncPanel({ onClose }: Props): JSX.Element {
           onComplete={(stats) => {
             setPreviewTask(null)
             handlePreviewComplete(stats)
+          }}
+          onExecuteInBackground={() => {
+            setPreviewTask(null)
+            onOpenTransferPanel?.()
           }}
         />
       )}

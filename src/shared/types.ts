@@ -340,6 +340,17 @@ export interface FolderTreeResult {
   truncated: boolean
 }
 
+export interface SyncRun {
+  runId: string
+  taskId: string
+  taskName: string
+  phase: 'running' | 'done' | 'error'
+  progress: SyncProgress | null
+  stats: SyncRunStats | null
+  error: string | null
+  startedAt: number
+}
+
 export interface UpdateInfo {
   version: string
   downloadUrl: string

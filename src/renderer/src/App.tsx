@@ -289,7 +289,12 @@ export default function App(): JSX.Element {
 			<ConflictModal />
 
 			{logsOpen && <LogsPanel onClose={() => setLogsOpen(false)} />}
-			{syncOpen && <SyncPanel onClose={() => setSyncOpen(false)} />}
+			{syncOpen && (
+				<SyncPanel
+					onClose={() => setSyncOpen(false)}
+					onOpenTransferPanel={() => setTransferPanelOpen(true)}
+				/>
+			)}
 			{settingsOpen && (
 				<SettingsModal
 					onClose={() => setSettingsOpen(false)}

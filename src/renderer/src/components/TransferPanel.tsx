@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { TransferItem } from '@shared/types'
+import type { SyncRun, TransferItem } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { useStore } from '../store'
 import { formatBytes, formatSpeed } from '../lib/format'
@@ -11,6 +11,8 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	const setTransfers = useStore((s) => s.setTransfers)
 	const clearFinished = useStore((s) => s.clearFinishedTransfers)
 	const cancelTransfer = useStore((s) => s.cancelTransfer)
+	const syncRuns = useStore((s) => s.syncRuns)
+	const clearFinishedSyncRuns = useStore((s) => s.clearFinishedSyncRuns)
 
 	const [collapsed, setCollapsed] = useState(() => !(open ?? false))
 	const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
@@ -328,11 +330,23 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 				</div>
 			)}
 
+			{!collapsed && syncRuns.length > 0 && (
+				<div className="sync-run-list">
+					<div className="sync-run-header">
+						<span>Sync</span>
+						{syncRuns.some((r) => r.phase !== 'running') && (
+							<button className="btn ghost" onClick={clearFinishedSyncRuns}>Clear</button>
+						)}
+					</div>
+					{syncRuns.map((run) => <SyncRunRow key={run.runId} run={run} />)}
+				</div>
+			)}
+
 			{!collapsed && (
 				<div className="transfer-list">
 					{transfers.length === 0 ? (
 						<div className="transfer-empty">
-							Drag files between panes to start a transfer. Progress shows here.
+							{syncRuns.length > 0 ? 'No file transfers.' : 'Drag files between panes to start a transfer. Progress shows here.'}
 						</div>
 					) : (
 						<>
@@ -477,6 +491,40 @@ function statusGlyph(status: TransferItem['status']): string {
 		default:
 			return '•'
 	}
+}
+
+function SyncRunRow({ run }: { run: SyncRun }): JSX.Element {
+	const pct = run.progress && run.progress.total > 0
+		? Math.round((run.progress.current / run.progress.total) * 100)
+		: run.phase === 'done' ? 100 : 0
+
+	return (
+		<div className={`transfer-item sync-run-item ${run.phase}`}>
+			<span className={`tstatus ${run.phase === 'running' ? 'transferring' : run.phase === 'done' ? 'done' : 'error'}`}>
+				{run.phase === 'done' ? '✓' : run.phase === 'error' ? '✕' : '↻'}
+			</span>
+			<span className="tname" title={run.taskName}>{run.taskName}</span>
+			<span className="tmeta">
+				{run.phase === 'running' && run.progress
+					? `${run.progress.current} / ${run.progress.total} files`
+					: run.phase === 'done' && run.stats
+						? `${run.stats.copied} copied, ${run.stats.deleted} deleted`
+						: run.phase === 'error'
+							? run.error ?? 'Error'
+							: 'Scanning…'}
+			</span>
+			<span className="tmeta">
+				{run.phase === 'running' && run.progress?.currentPath
+					? run.progress.currentPath.split('/').pop() ?? ''
+					: run.phase === 'done' ? '100%' : run.phase === 'running' ? `${pct}%` : ''}
+			</span>
+			{!run.stats && run.phase !== 'error' && (
+				<div className="pbar">
+					<span style={run.phase === 'running' ? { width: `${pct}%` } : { width: '100%' }} />
+				</div>
+			)}
+		</div>
+	)
 }
 
 function formatDuration(ms: number): string {

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { SyncPreviewItem, SyncProgress, SyncRunStats, SyncTask } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
+import { useStore } from '../store'
 
 interface Props {
   task: SyncTask
   onClose: () => void
   onComplete: (stats: SyncRunStats) => void
+  onExecuteInBackground?: () => void
 }
 
 type Phase = 'scanning' | 'preview' | 'executing' | 'done' | 'error'
@@ -43,7 +45,8 @@ const ACTION_LABELS: Record<SyncPreviewItem['action'], string> = {
   unchanged: 'Unchanged'
 }
 
-export function SyncPreviewModal({ task, onClose, onComplete }: Props): JSX.Element {
+export function SyncPreviewModal({ task, onClose, onComplete, onExecuteInBackground }: Props): JSX.Element {
+  const executeSyncInBackground = useStore((s) => s.executeSyncInBackground)
   const [phase, setPhase] = useState<Phase>('scanning')
   const [items, setItems] = useState<SyncPreviewItem[]>([])
   const [filter, setFilter] = useState<Filter>('all')
@@ -51,6 +54,7 @@ export function SyncPreviewModal({ task, onClose, onComplete }: Props): JSX.Elem
   const [stats, setStats] = useState<SyncRunStats | null>(null)
   const [error, setError] = useState('')
   const taskIdRef = useRef(task.id)
+  const sentToBackgroundRef = useRef(false)
   const [leftLabel, setLeftLabel] = useState<{ name: string; path: string }>({ name: 'Left', path: task.leftPath })
   const [rightLabel, setRightLabel] = useState<{ name: string; path: string }>({ name: 'Right', path: task.rightPath })
   const isOneWay = task.mode === 'copy' || task.mode === 'mirror'
@@ -85,7 +89,7 @@ export function SyncPreviewModal({ task, onClose, onComplete }: Props): JSX.Elem
 
     return () => {
       unsub()
-      void window.conduit.sync.cancel(task.id)
+      if (!sentToBackgroundRef.current) void window.conduit.sync.cancel(task.id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -118,6 +122,13 @@ export function SyncPreviewModal({ task, onClose, onComplete }: Props): JSX.Elem
       setError((err as Error).message)
       setPhase('error')
     }
+  }
+
+  function handleExecuteInBackground(): void {
+    sentToBackgroundRef.current = true
+    executeSyncInBackground(task, items)
+    onExecuteInBackground?.()
+    onClose()
   }
 
   const counts = useMemo(() => {
@@ -308,6 +319,16 @@ export function SyncPreviewModal({ task, onClose, onComplete }: Props): JSX.Elem
               <button className="btn ghost" onClick={onClose} disabled={phase === 'executing'}>
                 {phase === 'done' ? 'Close' : 'Cancel'}
               </button>
+              {phase === 'preview' && counts.total > 0 && (
+                <button
+                  className="btn ghost"
+                  onClick={handleExecuteInBackground}
+                  title="Run sync in the background — track progress in the Transfers panel"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'middle' }}>send_to_mobile</span>
+                  {' '}Run in Background
+                </button>
+              )}
               {phase === 'preview' && (
                 <button
                   className="btn primary"

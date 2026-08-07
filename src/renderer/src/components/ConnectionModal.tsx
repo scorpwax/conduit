@@ -396,18 +396,11 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
               </div>
               <div className="field">
                 <label>Region</label>
-                <input
-                  list="s3-regions"
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
-                  placeholder="us-east-1"
-                  autoComplete="off"
-                />
-                <datalist id="s3-regions">
+                <select value={region} onChange={(e) => setRegion(e.target.value)}>
                   {SUGGESTED_REGIONS.map((r) => (
-                    <option key={r} value={r} />
+                    <option key={r} value={r}>{r}</option>
                   ))}
-                </datalist>
+                </select>
               </div>
             </div>
             <div className="field">
@@ -477,18 +470,11 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
               </div>
               <div className="field">
                 <label>Region</label>
-                <input
-                  list="wasabi-regions"
-                  value={waRegion}
-                  onChange={(e) => setWaRegion(e.target.value)}
-                  placeholder="us-east-1"
-                  autoComplete="off"
-                />
-                <datalist id="wasabi-regions">
+                <select value={waRegion} onChange={(e) => setWaRegion(e.target.value)}>
                   {WASABI_REGIONS.map((r) => (
-                    <option key={r} value={r} />
+                    <option key={r} value={r}>{r}</option>
                   ))}
-                </datalist>
+                </select>
               </div>
             </div>
             <div className="field">

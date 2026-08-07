@@ -3527,3 +3527,186 @@ select {
     flex-shrink: 0;
     color: var(--text-dim);
 }
+
+/* ── Folder Browser Modal ───────────────────────────────────────────────────── */
+.fb-modal {
+    width: 520px;
+    max-width: 95vw;
+    display: flex;
+    flex-direction: column;
+    max-height: 70vh;
+}
+
+.fb-conn-name {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.fb-breadcrumbs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+
+.fb-crumb-wrap {
+    display: flex;
+    align-items: center;
+}
+
+.fb-crumb-sep {
+    color: var(--text-faint);
+    margin: 0 2px;
+}
+
+.fb-crumb {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.fb-crumb:hover { background: var(--bg-hover); color: var(--text); }
+.fb-crumb.active { color: var(--text); cursor: default; }
+
+.fb-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.fb-up-btn { padding: 4px 8px; gap: 4px; font-size: 12px; }
+.fb-up-btn .material-symbols-outlined { font-size: 14px; }
+
+.fb-current-path {
+    font-size: 11px;
+    color: var(--text-faint);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.fb-list {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 160px;
+}
+
+.fb-loading, .fb-empty, .fb-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.fb-error { color: var(--error, #ef4444); }
+
+.fb-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 16px;
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font-size: 13px;
+}
+
+.fb-row:hover { background: var(--bg-hover); }
+
+.fb-folder-icon {
+    font-size: 18px;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.fb-name { flex: 1; }
+
+.fb-row-arrow {
+    font-size: 16px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.fb-selected-path {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Sync Run List (in TransferPanel) ───────────────────────────────────────── */
+.sync-run-list {
+    border-bottom: 1px solid var(--border);
+}
+
+.sync-run-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    background: var(--bg-elev);
+}
+
+.sync-run-item {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.sync-run-item:last-child { border-bottom: none; }
+
+/* ── Sync Queue Bar ─────────────────────────────────────────────────────────── */
+.sync-queue-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+    border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.sync-queue-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sync-queue-label .material-symbols-outlined {
+    font-size: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.sync-queue-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}

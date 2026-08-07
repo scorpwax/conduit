@@ -14,7 +14,11 @@ import type {
   ListResult,
   TransferItem,
   TransferRequest,
-  Bookmark
+  Bookmark,
+  SyncTask,
+  SyncPreviewItem,
+  SyncProgress,
+  SyncRun
 } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 
@@ -109,6 +113,19 @@ interface AppState {
   createFileInPane: (paneId: string, name: string) => Promise<void>
   renameEntry: (paneId: string, path: string, newName: string) => Promise<void>
   deleteEntries: (paneId: string, entries: { path: string; kind: 'file' | 'directory' }[]) => Promise<void>
+
+  // Sync runs (background sync execution tracked in TransferPanel)
+  syncRuns: SyncRun[]
+  executeSyncInBackground: (task: SyncTask, items: SyncPreviewItem[]) => string
+  updateSyncRun: (runId: string, patch: Partial<SyncRun>) => void
+  clearFinishedSyncRuns: () => void
+
+  // Sync queue
+  syncQueue: SyncTask[]
+  addToSyncQueue: (task: SyncTask) => void
+  removeFromSyncQueue: (taskId: string) => void
+  clearSyncQueue: () => void
+  runSyncQueue: () => void
 }
 
 function newPane(): PaneState {
@@ -122,6 +139,9 @@ function newPane(): PaneState {
     selection: []
   }
 }
+
+// Module-level sync progress listener (torn down on re-init).
+let removeSyncProgressListener: (() => void) | null = null
 
 export const useStore = create<AppState>((set, get) => ({
   connections: [],
@@ -138,6 +158,8 @@ export const useStore = create<AppState>((set, get) => ({
   theme:
     typeof localStorage !== 'undefined' && localStorage.getItem('conduit.theme') === 'light' ? 'light' : 'dark',
   backgroundConnectionIds: [],
+  syncRuns: [],
+  syncQueue: [],
 
   async init() {
     const [connections, drives, transfers, bookmarks] = await Promise.all([
@@ -178,6 +200,15 @@ export const useStore = create<AppState>((set, get) => ({
 
       set((s) => ({
         transfers: s.transfers.map((t) => map.get(t.id) ?? t)
+      }))
+    })
+
+    removeSyncProgressListener?.()
+    removeSyncProgressListener = window.conduit.sync.onProgress((p: SyncProgress) => {
+      set((s) => ({
+        syncRuns: s.syncRuns.map((r) =>
+          r.taskId === p.taskId ? { ...r, progress: p } : r
+        )
       }))
     })
   },
@@ -486,5 +517,93 @@ export const useStore = create<AppState>((set, get) => ({
       await window.conduit.fs.delete(pane.connectionId, e.path, e.kind)
     }
     await get().refreshPane(paneId)
+  },
+
+  executeSyncInBackground(task, items) {
+    const runId = crypto.randomUUID()
+    const run: SyncRun = {
+      runId,
+      taskId: task.id,
+      taskName: task.name,
+      phase: 'running',
+      progress: null,
+      stats: null,
+      error: null,
+      startedAt: Date.now()
+    }
+    set((s) => ({ syncRuns: [...s.syncRuns, run] }))
+    void window.conduit.sync.execute(task.id, task, items).then((stats) => {
+      set((s) => ({
+        syncRuns: s.syncRuns.map((r) =>
+          r.runId === runId ? { ...r, phase: 'done', stats, progress: null } : r
+        )
+      }))
+    }).catch((err: Error) => {
+      set((s) => ({
+        syncRuns: s.syncRuns.map((r) =>
+          r.runId === runId ? { ...r, phase: 'error', error: err.message, progress: null } : r
+        )
+      }))
+    })
+    return runId
+  },
+
+  updateSyncRun(runId, patch) {
+    set((s) => ({
+      syncRuns: s.syncRuns.map((r) => r.runId === runId ? { ...r, ...patch } : r)
+    }))
+  },
+
+  clearFinishedSyncRuns() {
+    set((s) => ({ syncRuns: s.syncRuns.filter((r) => r.phase === 'running') }))
+  },
+
+  addToSyncQueue(task) {
+    set((s) => {
+      if (s.syncQueue.find((t) => t.id === task.id)) return s
+      return { syncQueue: [...s.syncQueue, task] }
+    })
+  },
+
+  removeFromSyncQueue(taskId) {
+    set((s) => ({ syncQueue: s.syncQueue.filter((t) => t.id !== taskId) }))
+  },
+
+  clearSyncQueue() {
+    set({ syncQueue: [] })
+  },
+
+  runSyncQueue() {
+    const queue = get().syncQueue
+    if (!queue.length) return
+    set({ syncQueue: [] })
+    const runNext = (index: number): void => {
+      if (index >= queue.length) return
+      const task = queue[index]
+      const runId = crypto.randomUUID()
+      const run: SyncRun = {
+        runId, taskId: task.id, taskName: task.name,
+        phase: 'running', progress: null, stats: null, error: null, startedAt: Date.now()
+      }
+      set((s) => ({ syncRuns: [...s.syncRuns, run] }))
+      void window.conduit.sync.runPreview(task.id, task).then((items) =>
+        window.conduit.sync.execute(task.id, task, items)
+      ).then((stats) => {
+        set((s) => ({
+          syncRuns: s.syncRuns.map((r) =>
+            r.runId === runId ? { ...r, phase: 'done', stats, progress: null } : r
+          )
+        }))
+        runNext(index + 1)
+      }).catch((err: Error) => {
+        set((s) => ({
+          syncRuns: s.syncRuns.map((r) =>
+            r.runId === runId ? { ...r, phase: 'error', error: err.message, progress: null } : r
+          )
+        }))
+        runNext(index + 1)
+      })
+    }
+    runNext(0)
   }
 }))

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Connection, SyncTask, SyncSchedule } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
+import { FolderBrowserModal } from './FolderBrowserModal'
 
 interface Props {
   task: SyncTask | null
@@ -60,6 +61,7 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
   const [scheduleType, setScheduleType] = useState<string>(task?.schedule?.type ?? 'none')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [browsingFor, setBrowsingFor] = useState<'left' | 'right' | null>(null)
 
   useEffect(() => {
     void window.conduit.connections.getAll().then(setConnections)
@@ -114,9 +116,13 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
   async function pickPath(side: 'left' | 'right'): Promise<void> {
     const connId = side === 'left' ? form.leftConnectionId : form.rightConnectionId
     const conn = allConnections.find((c) => c.id === connId)
-    if (!conn || (conn.type !== 'local' && conn.type !== 'smb')) return
-    const picked = await window.conduit.dialog.pickFolder()
-    if (picked) setField(side === 'left' ? 'leftPath' : 'rightPath', picked)
+    if (!conn) return
+    if (conn.type === 'local' || conn.type === 'smb') {
+      const picked = await window.conduit.dialog.pickFolder()
+      if (picked) setField(side === 'left' ? 'leftPath' : 'rightPath', picked)
+    } else {
+      setBrowsingFor(side)
+    }
   }
 
   const sched = form.schedule ?? {}
@@ -182,8 +188,8 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
                           }
                           placeholder="/"
                         />
-                        {canBrowse && (
-                          <button className="btn ghost st-browse-btn" onClick={() => void pickPath(side)}>
+                        {conn && (
+                          <button className="btn ghost st-browse-btn" title="Browse…" onClick={() => void pickPath(side)}>
                             <span className="material-symbols-outlined">folder_open</span>
                           </button>
                         )}
@@ -375,6 +381,21 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
           </button>
         </div>
       </div>
+
+      {browsingFor && (() => {
+        const connId = browsingFor === 'left' ? form.leftConnectionId : form.rightConnectionId
+        const conn = allConnections.find((c) => c.id === connId)
+        const currentPath = browsingFor === 'left' ? form.leftPath : form.rightPath
+        return conn ? (
+          <FolderBrowserModal
+            connectionId={connId}
+            connectionName={conn.name}
+            initialPath={currentPath}
+            onSelect={(p) => setField(browsingFor === 'left' ? 'leftPath' : 'rightPath', p)}
+            onClose={() => setBrowsingFor(null)}
+          />
+        ) : null
+      })()}
     </div>
   )
 }
