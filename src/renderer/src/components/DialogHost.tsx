@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useDialogStore, type ActiveDialog } from '../lib/dialog'
+import { useDialogStore } from '../lib/dialog'
+import type { ActiveDialog } from '../lib/dialog'
 
 export function DialogHost(): JSX.Element | null {
   const active = useDialogStore((s) => s.active)
@@ -46,6 +47,31 @@ export function DialogHost(): JSX.Element | null {
             >
               {opts.confirmText ?? 'OK'}
             </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (active.kind === 'choice') {
+    const { opts } = active
+    return (
+      <div className="modal-overlay" onMouseDown={() => resolve(null)}>
+        <div className="dialog-card" onMouseDown={(e) => e.stopPropagation()}>
+          <h2 className="dialog-title">{opts.title}</h2>
+          {opts.fileName && <div className="dialog-file">{opts.fileName}</div>}
+          {opts.message && <div className="dialog-warning">{opts.message}</div>}
+          <div className="dialog-actions dialog-choice-actions">
+            <button className="btn ghost" onClick={() => resolve(null)}>Cancel</button>
+            {opts.choices.map((c) => (
+              <button
+                key={c.value}
+                className={c.danger ? 'btn danger-solid' : c.primary ? 'btn primary' : 'btn'}
+                onClick={() => resolve(c.value)}
+              >
+                {c.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>

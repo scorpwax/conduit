@@ -339,6 +339,54 @@ function registerIpc(): void {
     if (err) throw new Error(err)
   })
 
+  ipcMain.handle(
+    IPC.fsDuplicateEntries,
+    async (_e, { connectionId, entries }: { connectionId: string; entries: Array<{ path: string; name: string; kind: 'file' | 'directory' }> }) => {
+      const provider = await getProvider(connectionId)
+
+      async function copyName(dir: string, baseName: string): Promise<string> {
+        const dot = baseName.lastIndexOf('.')
+        const hasExt = dot > 0
+        const stem = hasExt ? baseName.slice(0, dot) : baseName
+        const ext = hasExt ? baseName.slice(dot) : ''
+        let candidate = `${stem} (copy)${ext}`
+        let n = 2
+        while (await provider.exists(provider.join(dir, candidate))) {
+          candidate = `${stem} (copy ${n})${ext}`
+          n++
+        }
+        return candidate
+      }
+
+      async function copyDir(srcPath: string, destPath: string): Promise<void> {
+        await provider.mkdir(provider.parent(destPath), destPath.split(/[/\\]/).pop() ?? '')
+        const listing = await provider.list(srcPath)
+        for (const entry of listing.entries) {
+          const childDest = provider.join(destPath, entry.name)
+          if (entry.kind === 'directory') {
+            await copyDir(entry.path, childDest)
+          } else {
+            const stream = await provider.createReadStream(entry.path)
+            await provider.writeFile(childDest, stream, entry.size ?? 0)
+          }
+        }
+      }
+
+      for (const entry of entries) {
+        const dir = provider.parent(entry.path)
+        const newName = await copyName(dir, entry.name)
+        const destPath = provider.join(dir, newName)
+        if (entry.kind === 'file') {
+          const stream = await provider.createReadStream(entry.path)
+          const stat = await provider.stat(entry.path)
+          await provider.writeFile(destPath, stream, stat.size ?? 0)
+        } else {
+          await copyDir(entry.path, destPath)
+        }
+      }
+    }
+  )
+
   // Return the basenames of source items that already exist in the destination dir.
   ipcMain.handle(
     IPC.transferCheckConflicts,

@@ -5,7 +5,7 @@ import type { PaneState } from '../store'
 import { useStore } from '../store'
 import { formatBytes, formatDate, fileIcon, fileType } from '../lib/format'
 import { setDrag, clearDrag, getDrag } from '../lib/drag'
-import { confirmDialog, promptDialog } from '../lib/dialog'
+import { confirmDialog, promptDialog, choiceDialog } from '../lib/dialog'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { BatchRenameModal } from './BatchRenameModal'
 
@@ -39,6 +39,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const pasteInto = useStore((s) => s.pasteInto)
   const clipboard = useStore((s) => s.clipboard)
   const connections = useStore((s) => s.connections)
+  const refreshPane = useStore((s) => s.refreshPane)
 
   const [dropDir, setDropDir] = useState<string | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' })
@@ -337,7 +338,43 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
 
   async function doRename(entry: FileEntry): Promise<void> {
     const name = await promptDialog({ title: `Rename “${entry.name}”`, defaultValue: entry.name, confirmText: 'Rename' })
-    if (name && name !== entry.name) await renameEntry(pane.id, entry.path, name)
+    if (!name || name === entry.name) return
+
+    // Check if the name already exists in the current listing.
+    const existing = pane.result?.entries.find(
+      (e) => e.name.toLowerCase() === name.toLowerCase() && e.path !== entry.path
+    )
+    if (existing) {
+      const choice = await choiceDialog({
+        title: 'Name Already Exists',
+        fileName: name,
+        message: `”${name}” already exists in this location. What would you like to do?`,
+        choices: [
+          ...(existing.kind === 'directory' && entry.kind === 'directory'
+            ? [{ label: 'Merge', value: 'merge', primary: true }]
+            : [{ label: 'Overwrite', value: 'overwrite', danger: true }]),
+          { label: 'Rename Again', value: 'rename' },
+        ],
+      })
+      if (!choice) return
+      if (choice === 'rename') { void doRename(entry); return }
+      if (choice === 'overwrite') {
+        await window.conduit.fs.delete(pane.connectionId!, existing.path, existing.kind)
+      }
+      // 'merge' falls through — rename proceeds (OS/provider handles folder merge)
+    }
+
+    await renameEntry(pane.id, entry.path, name)
+  }
+
+  async function doDuplicate(entry: FileEntry): Promise<void> {
+    if (!pane.connectionId) return
+    const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
+    await window.conduit.fs.duplicateEntries(
+      pane.connectionId,
+      targets.map((t) => ({ path: t.path, name: t.name, kind: t.kind }))
+    )
+    await refreshPane(pane.id)
   }
 
   async function doDelete(entry: FileEntry): Promise<void> {
@@ -398,6 +435,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     items.push({ label: 'Deselect All', disabled: pane.selection.length === 0, onClick: () => setSelection(pane.id, []) })
     items.push({ label: 'Copy', onClick: () => doCopy(entry) })
     items.push({ label: 'Paste', disabled: !clipboard, onClick: () => void pasteInto(pane.id) })
+    items.push({ label: 'Duplicate', onClick: () => void doDuplicate(entry) })
     items.push({ label: 'Rename…', onClick: () => void doRename(entry) })
     items.push({
       label: 'Batch Rename…',

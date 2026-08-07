@@ -25,9 +25,17 @@ export interface PromptOptions {
   confirmText?: string
 }
 
+export interface ChoiceOptions {
+  title: string
+  message?: string
+  fileName?: string
+  choices: Array<{ label: string; value: string; danger?: boolean; primary?: boolean }>
+}
+
 export type ActiveDialog =
   | { kind: 'confirm'; opts: ConfirmOptions; resolve: (ok: boolean) => void }
   | { kind: 'prompt'; opts: PromptOptions; resolve: (value: string | null) => void }
+  | { kind: 'choice'; opts: ChoiceOptions; resolve: (value: string | null) => void }
 
 interface DialogStore {
   active: ActiveDialog | null
@@ -45,4 +53,8 @@ export function confirmDialog(opts: ConfirmOptions): Promise<boolean> {
 
 export function promptDialog(opts: PromptOptions): Promise<string | null> {
   return new Promise((resolve) => useDialogStore.getState()._set({ kind: 'prompt', opts, resolve }))
+}
+
+export function choiceDialog(opts: ChoiceOptions): Promise<string | null> {
+  return new Promise((resolve) => useDialogStore.getState()._set({ kind: 'choice', opts, resolve }))
 }

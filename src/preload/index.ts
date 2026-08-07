@@ -82,7 +82,11 @@ const api = {
     openFile: (path: string): Promise<void> =>
       ipcRenderer.invoke(IPC.fsOpenFile, { path }),
     startDrag: (paths: string[]): void =>
-      ipcRenderer.send(IPC.fsStartDrag, paths)
+      ipcRenderer.send(IPC.fsStartDrag, paths),
+    duplicateEntries: (
+      connectionId: string,
+      entries: Array<{ path: string; name: string; kind: 'file' | 'directory' }>
+    ): Promise<void> => ipcRenderer.invoke(IPC.fsDuplicateEntries, { connectionId, entries })
   },
   transfer: {
     checkConflicts: (req: TransferRequest): Promise<string[]> =>

@@ -38,6 +38,7 @@ export const IPC = {
 
   fsOpenFile: 'fs:openFile',
   fsStartDrag: 'fs:startDrag',
+  fsDuplicateEntries: 'fs:duplicateEntries',
   transferRetry: 'transfer:retry',
   dialogPickFolder: 'dialog:pickFolder',
 

@@ -2646,7 +2646,7 @@ select {
 ═══════════════════════════════════════════════════════════════ */
 
 .st-modal {
-    width: 560px;
+    width: 80%;
     max-width: 96vw;
     padding: 0;
     overflow: hidden;
@@ -3530,7 +3530,8 @@ select {
 
 /* ── Folder Browser Modal ───────────────────────────────────────────────────── */
 .fb-modal {
-    width: 520px;
+    width: 70%;
+    height: 70%;
     max-width: 95vw;
     display: flex;
     flex-direction: column;
@@ -3572,8 +3573,14 @@ select {
     font-size: 12px;
 }
 
-.fb-crumb:hover { background: var(--bg-hover); color: var(--text); }
-.fb-crumb.active { color: var(--text); cursor: default; }
+.fb-crumb:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+.fb-crumb.active {
+    color: var(--text);
+    cursor: default;
+}
 
 .fb-toolbar {
     display: flex;
@@ -3583,8 +3590,14 @@ select {
     border-bottom: 1px solid var(--border);
 }
 
-.fb-up-btn { padding: 4px 8px; gap: 4px; font-size: 12px; }
-.fb-up-btn .material-symbols-outlined { font-size: 14px; }
+.fb-up-btn {
+    padding: 4px 8px;
+    gap: 4px;
+    font-size: 12px;
+}
+.fb-up-btn .material-symbols-outlined {
+    font-size: 14px;
+}
 
 .fb-current-path {
     font-size: 11px;
@@ -3601,7 +3614,9 @@ select {
     min-height: 160px;
 }
 
-.fb-loading, .fb-empty, .fb-error {
+.fb-loading,
+.fb-empty,
+.fb-error {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3611,7 +3626,9 @@ select {
     font-size: 13px;
 }
 
-.fb-error { color: var(--error, #ef4444); }
+.fb-error {
+    color: var(--error, #ef4444);
+}
 
 .fb-row {
     display: flex;
@@ -3627,7 +3644,9 @@ select {
     font-size: 13px;
 }
 
-.fb-row:hover { background: var(--bg-hover); }
+.fb-row:hover {
+    background: var(--bg-hover);
+}
 
 .fb-folder-icon {
     font-size: 18px;
@@ -3635,7 +3654,9 @@ select {
     flex-shrink: 0;
 }
 
-.fb-name { flex: 1; }
+.fb-name {
+    flex: 1;
+}
 
 .fb-row-arrow {
     font-size: 16px;
@@ -3674,7 +3695,9 @@ select {
     border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
 }
 
-.sync-run-item:last-child { border-bottom: none; }
+.sync-run-item:last-child {
+    border-bottom: none;
+}
 
 /* ── Sync Queue Bar ─────────────────────────────────────────────────────────── */
 .sync-queue-bar {
@@ -3709,4 +3732,103 @@ select {
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+}
+
+/* ── Help & Documentation ───────────────────────────────────────────────────── */
+.help-docs {
+    overflow-y: auto;
+}
+
+.docs-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.docs-section {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.docs-section:last-child { border-bottom: none; }
+
+.docs-section h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.docs-section p {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.55;
+    margin: 0 0 8px;
+}
+
+.docs-section ul {
+    margin: 0;
+    padding: 0 0 0 18px;
+}
+
+.docs-section li {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-bottom: 4px;
+}
+
+.docs-section li strong { color: var(--text); }
+
+.docs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.docs-table th {
+    text-align: left;
+    padding: 5px 10px;
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    font-weight: 600;
+    border: 1px solid var(--border);
+}
+
+.docs-table td {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    vertical-align: top;
+}
+
+.docs-table td:first-child {
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text);
+}
+
+.settings-tabs {
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+}
+
+/* ── Choice dialog ──────────────────────────────────────────────────────────── */
+.dialog-choice-actions {
+    flex-wrap: wrap;
+    gap: 8px;
 }

@@ -12,6 +12,13 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.22.0] — 2026-08-07
+
+### Added
+- **In-app documentation** — "Help & Docs" tab in Settings covers Getting Started, connection types, file operations, sync tasks, keyboard shortcuts, and the activity log
+- **Rename conflict detection** — renaming a file/folder to a name that already exists shows a popup with Overwrite, Merge (folder-to-folder), Rename Again, or Cancel
+- **Duplicate files/folders** — new "Duplicate" option in the right-click context menu creates a copy in the same directory (e.g. `file (copy).txt`, `file (copy 2).txt`); supports both files and folders
+
 ## [1.21.0] — 2026-08-06
 
 ### Added

@@ -45,6 +45,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
   const [preset, setPreset] = useState<SpeedPreset>('balanced')
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState<'settings' | 'help'>('settings')
 
   useEffect(() => {
     void window.conduit.settings.get().then((s) => {
@@ -101,12 +102,27 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings-modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="material-symbols-outlined">settings</span>
-          <h2>Settings</h2>
+          <span className="material-symbols-outlined">{activeTab === 'help' ? 'help' : 'settings'}</span>
+          <h2>{activeTab === 'help' ? 'Help & Documentation' : 'Settings'}</h2>
           <button className="iconbtn modal-close" onClick={onClose}>✕</button>
         </div>
 
-        <div className="settings-body">
+        <div className="br-tabs settings-tabs">
+          <button className={`br-tab${activeTab === 'settings' ? ' active' : ''}`} onClick={() => setActiveTab('settings')}>
+            Settings
+          </button>
+          <button className={`br-tab${activeTab === 'help' ? ' active' : ''}`} onClick={() => setActiveTab('help')}>
+            Help & Docs
+          </button>
+        </div>
+
+        {activeTab === 'help' && (
+          <div className="settings-body help-docs">
+            <DocsContent />
+          </div>
+        )}
+
+        {activeTab === 'settings' && <div className="settings-body">
 
           {/* ── Transfers ─────────────────────────────────────── */}
           <section className="settings-section">
@@ -265,15 +281,124 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
             </div>
           </section>
 
-        </div>
+        </div>}
 
         <div className="modal-footer">
-          <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={() => void save()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Settings'}
-          </button>
+          {activeTab === 'settings' ? (
+            <>
+              <button className="btn ghost" onClick={onClose}>Cancel</button>
+              <button className="btn primary" onClick={() => void save()} disabled={saving}>
+                {saving ? 'Saving…' : 'Save Settings'}
+              </button>
+            </>
+          ) : (
+            <button className="btn ghost" onClick={onClose}>Close</button>
+          )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function DocsContent(): JSX.Element {
+  return (
+    <div className="docs-content">
+
+      <section className="docs-section">
+        <h3>Getting Started</h3>
+        <p>Conduit is a dual-pane file manager for transferring files between local drives, cloud storage (S3, Wasabi, Google Drive, OneDrive, Dropbox), and remote servers (SFTP, FTP, SMB, WebDAV). Drag files from one pane to the other to start a transfer.</p>
+      </section>
+
+      <section className="docs-section">
+        <h3>Connections</h3>
+        <p>Click the connection bar at the top of any pane to open the connection picker. Hit <strong>+ New Connection</strong> to set up a new one. Connection credentials are stored encrypted in your system keychain.</p>
+        <table className="docs-table">
+          <thead><tr><th>Type</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Local / External</td><td>Your Mac or connected drives. No setup required.</td></tr>
+            <tr><td>Amazon S3</td><td>Enter bucket, region, access key, and secret key. Supports custom endpoints for S3-compatible services.</td></tr>
+            <tr><td>Wasabi</td><td>Select your region from the dropdown — the endpoint is filled in automatically.</td></tr>
+            <tr><td>SFTP</td><td>Supports password or private key authentication. Key passphrase optional.</td></tr>
+            <tr><td>SMB</td><td>Windows file shares and NAS devices. Leave domain blank for workgroup.</td></tr>
+            <tr><td>FTP / FTPS</td><td>Standard FTP with optional TLS (FTPS). SFTP is recommended when available.</td></tr>
+            <tr><td>WebDAV</td><td>Nextcloud, ownCloud, Box, and any WebDAV server.</td></tr>
+            <tr><td>Google Drive</td><td>Authorize via OAuth — no passwords stored.</td></tr>
+            <tr><td>OneDrive</td><td>Authorize via OAuth — no passwords stored.</td></tr>
+            <tr><td>Dropbox</td><td>Authorize via OAuth — no passwords stored.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="docs-section">
+        <h3>Transferring Files</h3>
+        <ul>
+          <li><strong>Drag & drop</strong> — drag files or folders from one pane and drop them onto the other.</li>
+          <li><strong>Right-click → Download</strong> — copies the selected files to your default download folder.</li>
+          <li><strong>Large files</strong> — files over 50 MB use multipart upload automatically on S3/Wasabi.</li>
+          <li><strong>Conflicts</strong> — if a file already exists at the destination, Conduit will ask before overwriting.</li>
+          <li>Progress, speed, and estimated time are shown in the Transfers panel at the bottom.</li>
+        </ul>
+      </section>
+
+      <section className="docs-section">
+        <h3>File Operations</h3>
+        <ul>
+          <li><strong>Rename</strong> — right-click → Rename, or select and press <kbd>F2</kbd>. If the name already exists you'll be asked to overwrite, merge (folders), rename again, or cancel.</li>
+          <li><strong>Duplicate</strong> — right-click → Duplicate. Creates a copy in the same folder with "(copy)" appended.</li>
+          <li><strong>Batch Rename</strong> — select multiple files, right-click → Batch Rename… to apply a pattern across all of them.</li>
+          <li><strong>Copy / Paste</strong> — copies file references; Paste transfers into the current folder.</li>
+          <li><strong>Delete</strong> — right-click → Delete. Files are permanently removed (no Trash).</li>
+          <li><strong>Quick Look</strong> — press <kbd>Space</kbd> or right-click → Quick Look to preview a file (macOS only).</li>
+        </ul>
+      </section>
+
+      <section className="docs-section">
+        <h3>Sync Tasks</h3>
+        <p>Click <strong>Sync</strong> in the toolbar to open the Sync Tasks panel.</p>
+        <table className="docs-table">
+          <thead><tr><th>Mode</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Mirror</td><td>Left → Right only. Deletes extras on the right to match left exactly.</td></tr>
+            <tr><td>Copy</td><td>Left → Right only. Never deletes anything on the right.</td></tr>
+            <tr><td>Two-Way Sync</td><td>Syncs both directions. Newer version wins on conflict.</td></tr>
+            <tr><td>Two-Way Merge</td><td>Syncs both directions. Never deletes anything.</td></tr>
+          </tbody>
+        </table>
+        <ul>
+          <li><strong>Preview before execute</strong> — Conduit always shows you exactly what will change before anything is moved.</li>
+          <li><strong>Run in Background</strong> — click "Run in Background" in the preview to dismiss the modal and track progress in the Transfers panel.</li>
+          <li><strong>Queue</strong> — use "+ Queue" on multiple tasks, then "Run Queue" to execute them in sequence.</li>
+          <li><strong>Scheduled sync</strong> — configure a task to run on launch, on an interval, daily, weekly, or monthly.</li>
+          <li><strong>Include root folder</strong> — when enabled, files are placed inside a subfolder named after the source directory rather than directly at the destination root.</li>
+        </ul>
+      </section>
+
+      <section className="docs-section">
+        <h3>Keyboard Shortcuts</h3>
+        <table className="docs-table">
+          <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>Space</kbd></td><td>Quick Look preview (macOS)</td></tr>
+            <tr><td><kbd>F2</kbd></td><td>Rename selected file</td></tr>
+            <tr><td><kbd>⌘A</kbd> / <kbd>Ctrl A</kbd></td><td>Select all</td></tr>
+            <tr><td><kbd>⌘C</kbd> / <kbd>Ctrl C</kbd></td><td>Copy selected files</td></tr>
+            <tr><td><kbd>⌘V</kbd> / <kbd>Ctrl V</kbd></td><td>Paste into current folder</td></tr>
+            <tr><td><kbd>⌘+</kbd> / <kbd>⌘-</kbd></td><td>Increase / decrease file list font size</td></tr>
+            <tr><td><kbd>⌘0</kbd></td><td>Reset font size</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="docs-section">
+        <h3>Activity Log</h3>
+        <p>Click <strong>Logs</strong> in the toolbar to view the full activity log. Logs are color-coded by category (Transfer, Sync, Connection, File System, App). Use the filter chips and search bar to narrow results. Transfer speed and duration are shown for each completed file transfer. Logs are stored in <code>~/Library/Application Support/conduit/logs/conduit.log</code>.</p>
+      </section>
+
+      <section className="docs-section">
+        <h3>Multi-Pane Layout</h3>
+        <p>Click <strong>+ Add Pane</strong> to open up to 5 panes side by side. Drag the dividers between panes to resize them. Each pane is independent — you can browse different connections or folders simultaneously.</p>
+      </section>
+
     </div>
   )
 }
