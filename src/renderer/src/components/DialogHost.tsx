@@ -13,8 +13,15 @@ export function DialogHost(): JSX.Element | null {
       setValue(active.opts.defaultValue ?? '')
       // Focus + select so the user can type over the default (e.g. rename).
       setTimeout(() => {
-        inputRef.current?.focus()
-        inputRef.current?.select()
+        const el = inputRef.current
+        if (!el) return
+        el.focus()
+        const upTo = active.opts.selectUpTo
+        if (upTo !== undefined) {
+          el.setSelectionRange(0, upTo)
+        } else {
+          el.select()
+        }
       }, 0)
     }
   }, [active])

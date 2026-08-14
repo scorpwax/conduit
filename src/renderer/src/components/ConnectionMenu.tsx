@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { Connection } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { useStore } from '../store'
@@ -27,6 +27,7 @@ export function ConnectionMenu({ paneId, onClose, onAddNew, onEdit, onImport }: 
 	const addBookmark = useStore((s) => s.addBookmark)
 
 	const [ctx, setCtx] = useState<{ x: number; y: number; connectionId: string; path: string; name: string } | null>(null)
+	const [coffeeOpen, setCoffeeOpen] = useState(false)
 
 	useEffect(() => {
 		function onDoc(e: MouseEvent): void {
@@ -133,6 +134,17 @@ export function ConnectionMenu({ paneId, onClose, onAddNew, onEdit, onImport }: 
 					<div className="sub">Open a .conduit profile file</div>
 				</div>
 			</div>
+
+			<div className="menu-sep" />
+			<div className="menu-item coffee-menu-item" onClick={() => { setCoffeeOpen(true) }}>
+				<div className="conn-icon" style={{ background: '#4a2c0a', fontSize: 18 }}>☕</div>
+				<div className="mi-title">
+					<div className="name">Coffee Maker</div>
+					<div className="sub">brewing… please wait</div>
+				</div>
+			</div>
+
+			{coffeeOpen && <CoffeeMakerModal onClose={() => setCoffeeOpen(false)} />}
 
 			{ctx && (
 				<ContextMenu
@@ -317,5 +329,55 @@ function isLocalBacked(connectionId: string, connections: Connection[]): boolean
 		conn?.type === 'smb' ||
 		conn?.type === 's3' ||
 		conn?.type === 'wasabi'
+	)
+}
+
+// ── Coffee Maker easter egg ───────────────────────────────────────────────────
+
+function CoffeeMakerModal({ onClose }: { onClose: () => void }): JSX.Element {
+	const [phase, setPhase] = useState<'brewing' | 'ready'>('brewing')
+	const [dots, setDots] = useState('')
+
+	useEffect(() => {
+		const dotInterval = setInterval(() => setDots((d) => d.length >= 3 ? '' : d + '.'), 400)
+		const brewTimer = setTimeout(() => { setPhase('ready'); clearInterval(dotInterval) }, 3000)
+		return () => { clearInterval(dotInterval); clearTimeout(brewTimer) }
+	}, [])
+
+	return (
+		<div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+			<div className="modal coffee-modal" onMouseDown={(e) => e.stopPropagation()}>
+				{phase === 'brewing' ? (
+					<div className="coffee-brewing">
+						<div className="coffee-cup-wrap">
+							<div className="coffee-steam">
+								<span>〰</span><span>〰</span><span>〰</span>
+							</div>
+							<div className="coffee-cup">☕</div>
+						</div>
+						<div className="coffee-status">Connecting to Coffee Maker{dots}</div>
+						<div className="coffee-substatus">Authenticating beans · Checking grind level · Heating water</div>
+					</div>
+				) : (
+					<div className="coffee-ready">
+						<div className="coffee-cup-big">☕</div>
+						<div className="coffee-headline">Connection Successful!</div>
+						<div className="coffee-message">
+							Your coffee is ready.<br />
+							<strong>Now get back to work.</strong>
+						</div>
+						<div className="coffee-specs">
+							<span className="coffee-spec">Protocol: <code>HTTP/Brew</code></span>
+							<span className="coffee-spec">Latency: <code>3,000ms (grinding)</code></span>
+							<span className="coffee-spec">Throughput: <code>1 cup/session</code></span>
+							<span className="coffee-spec">Encryption: <code>Steamed (TLS 1.3)</code></span>
+						</div>
+						<button className="btn primary" onClick={onClose} style={{ marginTop: 20 }}>
+							Drink Coffee ☕
+						</button>
+					</div>
+				)}
+			</div>
+		</div>
 	)
 }

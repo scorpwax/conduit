@@ -148,6 +148,16 @@ async function createWindow(): Promise<void> {
 
   if (process.platform === 'win32') {
     mainWindow.on('restore', () => mainWindow?.webContents.invalidate())
+    // Keep active transfers running while the window is minimized on Windows.
+    // Without this the OS can throttle the process and pause uploads/downloads.
+    mainWindow.on('minimize', () => {
+      const hasActive = transferEngine.getAll().some(
+        (i) => i.status === 'transferring' || i.status === 'queued'
+      )
+      if (hasActive && powerBlockerId === null) {
+        powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+      }
+    })
   }
 
   // Intercept window close (red X and Cmd+Q both come through here after before-quit sets quitInProgress).
@@ -383,6 +393,51 @@ function registerIpc(): void {
         } else {
           await copyDir(entry.path, destPath)
         }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC.fsMoveToDir,
+    async (_e, { connectionId, paths, destDir }: { connectionId: string; paths: string[]; destDir: string }) => {
+      const provider = await getProvider(connectionId)
+      const connType = provider.connection.type
+
+      async function moveDir(srcPath: string, destPath: string): Promise<void> {
+        await provider.mkdir(provider.parent(destPath) ?? destDir, destPath.split(/[/\\]/).pop() ?? '')
+        const listing = await provider.list(srcPath)
+        for (const entry of listing.entries) {
+          const childDest = provider.join(destPath, entry.name)
+          if (entry.kind === 'directory') {
+            await moveDir(entry.path, childDest)
+          } else {
+            const { stream, size } = await provider.createReadStream(entry.path)
+            await provider.writeFile(childDest, stream, size)
+            await provider.delete(entry.path, 'file')
+          }
+        }
+        await provider.delete(srcPath, 'directory')
+      }
+
+      for (const srcPath of paths) {
+        const name = srcPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? srcPath
+        const destPath = provider.join(destDir, name)
+        const entry = await provider.stat(srcPath)
+
+        if (connType === 'local' || connType === 'smb') {
+          // OS-level rename handles cross-directory moves atomically on the same filesystem.
+          const { rename } = await import('fs/promises')
+          await rename(srcPath, destPath)
+        } else if (entry.kind === 'file') {
+          const { stream, size } = await provider.createReadStream(srcPath)
+          await provider.writeFile(destPath, stream, size)
+          await provider.delete(srcPath, 'file')
+        } else {
+          // Remote folder: recursive copy then delete
+          await moveDir(srcPath, destPath)
+        }
+
+        log.info('fs', `Moved "${srcPath}" → "${destPath}"`)
       }
     }
   )
@@ -804,6 +859,13 @@ function registerIpc(): void {
 // "[ERROR:gl_display.cc] eglQueryDeviceAttribEXT: Bad attribute" stderr spam.
 if (!app.isPackaged && process.platform === 'darwin') {
   app.commandLine.appendSwitch('use-angle', 'metal')
+}
+
+// Prevent Windows from throttling the renderer process when the window is
+// minimized — without these, active transfers can stall or slow to a crawl.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-renderer-backgrounding')
+  app.commandLine.appendSwitch('disable-background-timer-throttling')
 }
 
 // Register Adobe's custom URI scheme so the OS delivers OAuth callbacks to this app.

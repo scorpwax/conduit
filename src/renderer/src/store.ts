@@ -99,7 +99,8 @@ interface AppState {
     sourceConnectionId: string,
     destConnectionId: string,
     sourcePaths: string[],
-    destDir: string
+    destDir: string,
+    deleteSourceAfter?: boolean
   ) => Promise<void>
   resolveConflict: (policy: ConflictPolicy) => Promise<void>
   setTransfers: (items: TransferItem[]) => void
@@ -422,7 +423,7 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
 
-  async requestTransfer(sourceConnectionId, destConnectionId, sourcePaths, destDir) {
+  async requestTransfer(sourceConnectionId, destConnectionId, sourcePaths, destDir, deleteSourceAfter?) {
     // Auto-clear finished transfers when starting fresh work.
     const { transfers } = get()
     const hasActive = transfers.some((t) => t.status === 'transferring' || t.status === 'queued')
@@ -430,7 +431,7 @@ export const useStore = create<AppState>((set, get) => ({
       await get().clearFinishedTransfers()
     }
 
-    const request: TransferRequest = { sourceConnectionId, destConnectionId, sourcePaths, destDir }
+    const request: TransferRequest = { sourceConnectionId, destConnectionId, sourcePaths, destDir, deleteSourceAfter }
     const names = await window.conduit.transfer.checkConflicts(request)
     if (names.length === 0) {
       await window.conduit.transfer.enqueue(request)

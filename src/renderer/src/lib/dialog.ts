@@ -23,6 +23,8 @@ export interface PromptOptions {
   defaultValue?: string
   placeholder?: string
   confirmText?: string
+  /** If set, pre-selects only characters 0..selectUpTo (exclusive) on open. */
+  selectUpTo?: number
 }
 
 export interface ChoiceOptions {

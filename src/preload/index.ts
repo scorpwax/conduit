@@ -86,7 +86,9 @@ const api = {
     duplicateEntries: (
       connectionId: string,
       entries: Array<{ path: string; name: string; kind: 'file' | 'directory' }>
-    ): Promise<void> => ipcRenderer.invoke(IPC.fsDuplicateEntries, { connectionId, entries })
+    ): Promise<void> => ipcRenderer.invoke(IPC.fsDuplicateEntries, { connectionId, entries }),
+    moveToDir: (connectionId: string, paths: string[], destDir: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.fsMoveToDir, { connectionId, paths, destDir })
   },
   transfer: {
     checkConflicts: (req: TransferRequest): Promise<string[]> =>

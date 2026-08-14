@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Connection, SyncTask, SyncSchedule } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { FolderBrowserModal } from './FolderBrowserModal'
+import { ConnectionModal } from './ConnectionModal'
+import { ConnIcon } from '../lib/connMeta'
+import { useStore } from '../store'
 
 interface Props {
   task: SyncTask | null
@@ -62,9 +65,14 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [browsingFor, setBrowsingFor] = useState<'left' | 'right' | null>(null)
+  const [newConnSide, setNewConnSide] = useState<'left' | 'right' | null>(null)
+
+  function refreshConnections(): Promise<Connection[]> {
+    return window.conduit.connections.getAll().then((c) => { setConnections(c); return c })
+  }
 
   useEffect(() => {
-    void window.conduit.connections.getAll().then(setConnections)
+    void refreshConnections()
   }, [])
 
   const allConnections = [
@@ -167,18 +175,15 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
                   return (
                     <div key={side} className={`st-side st-side-${side}`}>
                       <div className="st-side-label">{label}</div>
-                      <select
-                        className="input"
+                      <SyncConnPicker
+                        connections={connections}
                         value={connId}
-                        onChange={(e) =>
-                          setField(side === 'left' ? 'leftConnectionId' : 'rightConnectionId', e.target.value)
-                        }
-                      >
-                        <option value="">— Select connection —</option>
-                        {allConnections.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
+                        onChange={(id, rootPath) => {
+                          setField(side === 'left' ? 'leftConnectionId' : 'rightConnectionId', id)
+                          if (rootPath !== undefined) setField(side === 'left' ? 'leftPath' : 'rightPath', rootPath)
+                        }}
+                        onAddNew={() => setNewConnSide(side)}
+                      />
                       <div className="st-path-row">
                         <input
                           className="input"
@@ -391,12 +396,189 @@ export function SyncTaskModal({ task, onClose, onSaved }: Props): JSX.Element {
             connectionId={connId}
             connectionName={conn.name}
             initialPath={currentPath}
+            showFiles
             onSelect={(p) => setField(browsingFor === 'left' ? 'leftPath' : 'rightPath', p)}
             onClose={() => setBrowsingFor(null)}
           />
         ) : null
       })()}
+
+      {newConnSide && (
+        <ConnectionModal
+          existing={null}
+          onClose={() => setNewConnSide(null)}
+          onSaved={(conn) => {
+            void refreshConnections().then(() => {
+              setField(newConnSide === 'left' ? 'leftConnectionId' : 'rightConnectionId', conn.id)
+              setNewConnSide(null)
+            })
+          }}
+        />
+      )}
     </div>
   )
+}
+
+// ── SyncConnPicker ────────────────────────────────────────────────────────────
+
+interface SyncConnPickerProps {
+  connections: Connection[]
+  value: string
+  /** Called with the connection id and its rootPath (if any) so callers can auto-populate the path field. */
+  onChange: (id: string, rootPath?: string) => void
+  onAddNew: () => void
+}
+
+function SyncConnPicker({ connections, value, onChange, onAddNew }: SyncConnPickerProps): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const storeConns = useStore((s) => s.connections)
+
+  // Use store connections (kept in sync with toggleFavorite) for live favorite state.
+  const liveConns = storeConns.length > 0 ? storeConns : connections
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e: MouseEvent): void {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const byName = (a: Connection, b: Connection): number => a.name.localeCompare(b.name)
+  const favorites = liveConns.filter((c) => c.favorite).sort(byName)
+  const others = liveConns.filter((c) => !c.favorite).sort(byName)
+
+  const builtinLocal = { id: BUILTIN_LOCAL_ID, name: 'This Computer', type: 'local' as const, favorite: false, config: {}, createdAt: '' }
+  const selected = value === BUILTIN_LOCAL_ID
+    ? builtinLocal
+    : liveConns.find((c) => c.id === value) ?? null
+
+  function pick(id: string): void {
+    if (id === BUILTIN_LOCAL_ID) {
+      onChange(id, '')
+    } else {
+      const conn = liveConns.find((c) => c.id === id)
+      const rootPath = (conn?.config as { rootPath?: string })?.rootPath ?? ''
+      onChange(id, rootPath)
+    }
+    setOpen(false)
+  }
+
+  return (
+    <div className="sync-conn-picker" ref={ref}>
+      <button
+        className={`sync-conn-trigger${open ? ' open' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        type="button"
+      >
+        {selected ? (
+          <>
+            <ConnIcon type={selected.type} size={18} />
+            <span className="scp-name">{selected.name}</span>
+          </>
+        ) : (
+          <span className="scp-placeholder">— Select connection —</span>
+        )}
+        <span className="material-symbols-outlined scp-chevron">expand_more</span>
+      </button>
+
+      {open && (
+        <div className="sync-conn-menu">
+          {/* This Computer */}
+          <div className="menu-item" onClick={() => pick(BUILTIN_LOCAL_ID)}>
+            <ConnIcon type="local" size={22} />
+            <div className="mi-title">
+              <div className="name">This Computer</div>
+              <div className="sub">Local filesystem</div>
+            </div>
+            {value === BUILTIN_LOCAL_ID && <span className="scp-check">✓</span>}
+          </div>
+
+          {favorites.length > 0 && (
+            <>
+              <div className="menu-sep" />
+              <div className="menu-label">Favorites</div>
+              {favorites.map((c) => (
+                <div key={c.id} className="menu-item" onClick={() => pick(c.id)}>
+                  <ConnIcon type={c.type} size={22} />
+                  <div className="mi-title">
+                    <div className="name">{c.name}</div>
+                    <div className="sub">{describeConn(c)}</div>
+                  </div>
+                  {value === c.id && <span className="scp-check">✓</span>}
+                </div>
+              ))}
+            </>
+          )}
+
+          {others.length > 0 && (
+            <>
+              <div className="menu-sep" />
+              <div className="menu-label">Connections</div>
+              {others.map((c) => (
+                <div key={c.id} className="menu-item" onClick={() => pick(c.id)}>
+                  <ConnIcon type={c.type} size={22} />
+                  <div className="mi-title">
+                    <div className="name">{c.name}</div>
+                    <div className="sub">{describeConn(c)}</div>
+                  </div>
+                  {value === c.id && <span className="scp-check">✓</span>}
+                </div>
+              ))}
+            </>
+          )}
+
+          <div className="menu-sep" />
+          <div
+            className="menu-item accent"
+            onClick={() => { setOpen(false); onAddNew() }}
+          >
+            <div className="conn-icon" style={{ background: 'var(--accent)' }}>＋</div>
+            <div className="mi-title">
+              <div className="name">New Connection…</div>
+              <div className="sub">Local, S3, SFTP, SMB, and more</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function describeConn(conn: Connection): string {
+  if (conn.type === 's3') {
+    const cfg = conn.config as { bucket?: string; region?: string }
+    return `S3 · ${cfg.bucket ?? ''}${cfg.region ? ' · ' + cfg.region : ''}`
+  }
+  if (conn.type === 'wasabi') {
+    const cfg = conn.config as { bucket?: string; region?: string }
+    return `Wasabi · ${cfg.bucket ?? ''}${cfg.region ? ' · ' + cfg.region : ''}`
+  }
+  if (conn.type === 'local') {
+    const cfg = conn.config as { rootPath?: string }
+    return cfg.rootPath ?? 'Home folder'
+  }
+  if (conn.type === 'sftp') {
+    const cfg = conn.config as { host?: string; username?: string }
+    return `SFTP · ${cfg.username ?? ''}@${cfg.host ?? ''}`
+  }
+  if (conn.type === 'smb') {
+    const cfg = conn.config as { host?: string; share?: string }
+    return `SMB · \\\\${cfg.host ?? ''}\\${cfg.share ?? ''}`
+  }
+  if (conn.type === 'ftp') {
+    const cfg = conn.config as { host?: string; username?: string }
+    return `FTP · ${cfg.username ?? ''}@${cfg.host ?? ''}`
+  }
+  if (conn.type === 'webdav') {
+    const cfg = conn.config as { url?: string }
+    return `WebDAV · ${cfg.url ?? ''}`
+  }
+  if (conn.type === 'gdrive') return 'Google Drive'
+  if (conn.type === 'onedrive') return 'OneDrive'
+  if (conn.type === 'dropbox') return 'Dropbox'
+  return ''
 }
 

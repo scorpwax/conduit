@@ -190,7 +190,8 @@ class TransferEngine extends EventEmitter {
       bytesTotal: size,
       bytesDone: req.resumeFromOffset ?? 0,
       status: 'queued',
-      resumeFromOffset: req.resumeFromOffset
+      resumeFromOffset: req.resumeFromOffset,
+      deleteSourceAfter: req.deleteSourceAfter
     }
   }
 
@@ -419,6 +420,18 @@ class TransferEngine extends EventEmitter {
         }
         item.status = 'done'
         item.bytesDone = item.bytesTotal
+
+        // Cross-connection move: delete the source file now that it's safely copied.
+        if (item.deleteSourceAfter) {
+          try {
+            const src = await getProvider(item.source.connectionId)
+            await src.delete(item.source.path, 'file')
+            log.info('transfer', `Deleted source "${item.source.path}" after move`)
+          } catch (delErr) {
+            log.warn('transfer', `Move complete but could not delete source "${item.source.path}": ${(delErr as Error).message}`)
+          }
+        }
+
         const durationMs = item.startedAt ? Date.now() - item.startedAt : undefined
         const avgSpeedBps = (durationMs && durationMs > 0 && item.bytesTotal > 0)
           ? Math.round(item.bytesTotal / (durationMs / 1000))

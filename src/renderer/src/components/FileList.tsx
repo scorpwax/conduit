@@ -8,6 +8,7 @@ import { setDrag, clearDrag, getDrag } from '../lib/drag'
 import { confirmDialog, promptDialog, choiceDialog } from '../lib/dialog'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { BatchRenameModal } from './BatchRenameModal'
+import { FolderBrowserModal } from './FolderBrowserModal'
 
 interface Props {
   pane: PaneState
@@ -46,10 +47,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [childCache, setChildCache] = useState<Record<string, FileEntry[]>>({})
-  const [infoEntry, setInfoEntry] = useState<FileEntry | null>(null)
+  const [infoEntries, setInfoEntries] = useState<FileEntry[] | null>(null)
   const [infoFull, setInfoFull] = useState<FileEntry | null>(null)
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
   const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
+  const [moveToEntry, setMoveToEntry] = useState<FileEntry[] | null>(null)
+  const [compareEntries, setCompareEntries] = useState<Array<{ entry: FileEntry; connectionId: string }> | null>(null)
 
   const [batchRenameOpen, setBatchRenameOpen] = useState(false)
   const [batchRenameEntries, setBatchRenameEntries] = useState<FileEntry[]>([])
@@ -305,9 +308,10 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     const payload = getDrag()
     if (payload) {
       if (payload.fromPaneId === pane.id) {
-        // Same-pane drag: move selected files into this subfolder.
+        // Same-pane drag: MOVE (not copy) into the subfolder.
         if (!pane.connectionId) return
-        void requestTransfer(pane.connectionId, pane.connectionId, payload.paths, dir.path)
+        void window.conduit.fs.moveToDir(pane.connectionId, payload.paths, dir.path)
+          .then(() => refreshPane(pane.id))
         clearDrag()
       } else {
         void transferInto(dir.path)
@@ -337,7 +341,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   }
 
   async function doRename(entry: FileEntry): Promise<void> {
-    const name = await promptDialog({ title: `Rename “${entry.name}”`, defaultValue: entry.name, confirmText: 'Rename' })
+    // For files, pre-select only the stem (not the extension) so the user
+    // doesn't accidentally overwrite the extension when typing a new name.
+    let selectUpTo: number | undefined
+    if (entry.kind === 'file') {
+      const dot = entry.name.lastIndexOf('.')
+      if (dot > 0) selectUpTo = dot
+    }
+    const name = await promptDialog({ title: `Rename “${entry.name}”`, defaultValue: entry.name, confirmText: 'Rename', selectUpTo })
     if (!name || name === entry.name) return
 
     // Check if the name already exists in the current listing.
@@ -449,7 +460,13 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     // Group 3: info / export
     items.push({ separator: true })
     items.push({ label: 'Download…', onClick: () => void doDownload(entry) })
+    items.push({ label: 'Move to…', onClick: () => doMoveTo(entry) })
     items.push({ label: 'Copy Path', onClick: () => doCopyPath(entry) })
+    const crossPaneTotal = panes.reduce((n, p) => n + (p.selection.length > 0 && p.connectionId ? p.selection.length : 0), 0)
+    const samePaneSel = pane.selection.includes(entry.path) ? pane.selection : [entry.path]
+    if (crossPaneTotal >= 2 || samePaneSel.length >= 2) {
+      items.push({ label: 'Compare', onClick: () => doCompare(entry) })
+    }
     items.push({ label: 'Properties', onClick: () => doGetInfo(entry) })
     if (entry.kind === 'directory') {
       items.push({ label: 'File Tree…', onClick: () => doViewTree(entry) })
@@ -470,21 +487,47 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   }
 
   function doGetInfo(entry: FileEntry): void {
-    setInfoEntry(entry)
+    const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
+    setInfoEntries(targets)
     setInfoFull(null)
     setInfoChecksum('loading')
     setInfoContents('loading')
-    if (!pane.connectionId) return
-    void window.conduit.fs.stat(pane.connectionId, entry.path).then((full) => setInfoFull(full))
-    if (entry.kind === 'file') {
-      void window.conduit.fs.checksum(pane.connectionId, entry.path).then((c) => setInfoChecksum(c))
+    if (!pane.connectionId || targets.length !== 1) return
+    const single = targets[0]
+    void window.conduit.fs.stat(pane.connectionId, single.path).then((full) => setInfoFull(full))
+    if (single.kind === 'file') {
+      void window.conduit.fs.checksum(pane.connectionId, single.path).then((c) => setInfoChecksum(c))
       setInfoContents(null)
     } else {
       setInfoChecksum(null)
-      void window.conduit.fs.folderContents(pane.connectionId, entry.path).then((c) => setInfoContents(c))
-      // Auto-start size calculation if not already done
-      fetchFolderSize(entry.path)
+      void window.conduit.fs.folderContents(pane.connectionId, single.path).then((c) => setInfoContents(c))
+      fetchFolderSize(single.path)
     }
+  }
+
+  function doMoveTo(entry: FileEntry): void {
+    const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
+    setMoveToEntry(targets)
+  }
+
+  function doCompare(entry: FileEntry): void {
+    // Collect selections from every pane that has something selected,
+    // tagging each entry with its connection. This enables cross-connection compare.
+    const items: Array<{ entry: FileEntry; connectionId: string }> = []
+    for (const p of panes) {
+      if (!p.connectionId || p.selection.length === 0) continue
+      const paneEntries = p.result?.entries ?? []
+      for (const path of p.selection) {
+        const e = paneEntries.find((en) => en.path === path)
+        if (e) items.push({ entry: e, connectionId: p.connectionId })
+      }
+    }
+    // Fall back to the right-clicked entry if nothing useful across panes
+    if (items.length === 0 && pane.connectionId) {
+      const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
+      for (const e of targets) items.push({ entry: e, connectionId: pane.connectionId })
+    }
+    if (items.length >= 1) setCompareEntries(items)
   }
 
   function doViewTree(entry: FileEntry): void {
@@ -576,24 +619,75 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       {pathCopied && (
         <div className="path-copied-toast">Path copied to clipboard</div>
       )}
-      {infoEntry && (() => {
+      {infoEntries && (() => {
         const conn = connections.find((c) => c.id === pane.connectionId) ?? null
-        const webUrl = conn ? buildWebUrl(conn, infoEntry.path) : null
-        const isDir = infoEntry.kind === 'directory'
-        const pathLen = infoEntry.path.length
-        const pathOverLimit = pathLen > 256
         const closeInfo = () => {
-          setInfoEntry(null); setInfoFull(null); setInfoChecksum('loading'); setInfoContents('loading')
+          setInfoEntries(null); setInfoFull(null); setInfoChecksum('loading'); setInfoContents('loading')
         }
-        const contentsLabel = (() => {
-          if (!isDir) return null
-          if (infoContents === 'loading') return 'Loading…'
-          if (!infoContents) return 'Unavailable'
-          const parts: string[] = []
-          if (infoContents.folders > 0) parts.push(`${infoContents.folders} folder${infoContents.folders !== 1 ? 's' : ''}`)
-          if (infoContents.files > 0) parts.push(`${infoContents.files} file${infoContents.files !== 1 ? 's' : ''}`)
-          return parts.length > 0 ? parts.join(', ') : 'Empty'
-        })()
+        const multi = infoEntries.length > 1
+        const single = !multi ? infoEntries[0] : null
+
+        if (multi) {
+          return (
+            <div className="modal-overlay" onMouseDown={closeInfo}>
+              <div className="info-panel" onMouseDown={(e) => e.stopPropagation()}>
+                <div className="info-header">
+                  <span className="info-title">Properties — {infoEntries.length} items</span>
+                  <button className="iconbtn" onClick={closeInfo}>✕</button>
+                </div>
+                <div className="info-body">
+                  {infoEntries.map((e, i) => {
+                    const webUrl = conn ? buildWebUrl(conn, e.path) : null
+                    const pathLen = e.path.length
+                    const pathOverLimit = pathLen > 256
+                    const fsz = folderSizes[e.path]
+                    const sizeVal = (() => {
+                      if (e.kind === 'directory') {
+                        if (!fsz || fsz === 'loading') return 'Calculating…'
+                        if (typeof fsz === 'object') {
+                          const human = formatBytes(fsz.size)
+                          const raw = fsz.size.toLocaleString()
+                          return fsz.size >= 1000 ? `${human} (${raw} bytes)` : human
+                        }
+                        return 'Unavailable'
+                      }
+                      const bytes = e.size ?? 0
+                      if (!bytes) return '—'
+                      const human = formatBytes(bytes)
+                      const raw = bytes.toLocaleString()
+                      return bytes >= 1000 ? `${human} (${raw} bytes)` : human
+                    })()
+                    return (
+                      <div key={e.path}>
+                        {i > 0 && <div className="info-divider" />}
+                        <FileInfoRow label="Name" value={e.name} />
+                        <FileInfoRow label="Kind" value={e.kind === 'directory' ? 'Folder' : 'File'} />
+                        <FileInfoRow label="Type" value={e.kind === 'directory' ? 'Folder' : fileType(e.name, e.kind)} />
+                        <FileInfoRow
+                          label="Path"
+                          value={e.path}
+                          mono
+                          warning={pathOverLimit ? `Path is ${pathLen} characters — exceeds the 256-character Windows limit` : undefined}
+                          extra={`${pathLen} characters`}
+                        />
+                        {webUrl && <FileInfoRow label="URL" value={webUrl} mono />}
+                        <FileInfoRow label="Size" value={sizeVal} />
+                        {e.modified && <FileInfoRow label="Modified" value={formatDate(e.modified)} />}
+                        {e.kind === 'file' && <FileInfoRow label="Checksum" value="—" />}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        if (!single) return null
+        const webUrl = conn ? buildWebUrl(conn, single.path) : null
+        const isDir = single.kind === 'directory'
+        const pathLen = single.path.length
+        const pathOverLimit = pathLen > 256
         return (
           <div className="modal-overlay" onMouseDown={closeInfo}>
             <div className="info-panel" onMouseDown={(e) => e.stopPropagation()}>
@@ -602,12 +696,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 <button className="iconbtn" onClick={closeInfo}>✕</button>
               </div>
               <div className="info-body">
-                <FileInfoRow label="Name" value={infoEntry.name} />
+                <FileInfoRow label="Name" value={single.name} />
                 <FileInfoRow label="Kind" value={isDir ? 'Folder' : 'File'} />
-                {!isDir && <FileInfoRow label="Type" value={fileType(infoEntry.name, infoEntry.kind)} />}
+                {!isDir && <FileInfoRow label="Type" value={fileType(single.name, single.kind)} />}
                 <FileInfoRow
                   label="Path"
-                  value={infoEntry.path}
+                  value={single.path}
                   mono
                   warning={pathOverLimit ? `Path is ${pathLen} characters — exceeds the 256-character Windows limit` : undefined}
                   extra={`${pathLen} characters`}
@@ -617,13 +711,13 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                   label="Size"
                   value={(() => {
                     if (!isDir) {
-                      const bytes = infoFull?.size ?? infoEntry.size ?? 0
+                      const bytes = infoFull?.size ?? single.size ?? 0
                       if (!bytes) return '—'
                       const human = formatBytes(bytes)
                       const raw = bytes.toLocaleString()
                       return bytes >= 1000 ? `${human} (${raw} bytes)` : human
                     }
-                    const fsz = folderSizes[infoEntry.path]
+                    const fsz = folderSizes[single.path]
                     if (fsz === 'loading' || fsz === undefined) return 'Calculating…'
                     if (fsz && typeof fsz === 'object') {
                       const human = formatBytes(fsz.size)
@@ -634,9 +728,9 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                   })()}
                 />
                 {(() => {
-                  const fsz = folderSizes[infoEntry.path]
+                  const fsz = folderSizes[single.path]
                   const folderModified = (fsz && typeof fsz === 'object') ? fsz.latestModified : null
-                  const modDate = infoFull?.modified ?? infoEntry.modified ?? folderModified
+                  const modDate = infoFull?.modified ?? single.modified ?? folderModified
                   return modDate ? <FileInfoRow label="Modified" value={formatDate(modDate)} /> : null
                 })()}
                 {isDir && (() => {
@@ -829,6 +923,34 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
           )
         })
       )}
+
+      {moveToEntry && pane.connectionId && (
+        <MoveToModal
+          sourceConnectionId={pane.connectionId}
+          entries={moveToEntry}
+          onMove={async (destConnectionId, destDir) => {
+            if (!pane.connectionId) return
+            const srcPaths = moveToEntry.map((e) => e.path)
+            if (destConnectionId === pane.connectionId) {
+              await window.conduit.fs.moveToDir(pane.connectionId, srcPaths, destDir)
+            } else {
+              await requestTransfer(pane.connectionId, destConnectionId, srcPaths, destDir, true)
+            }
+            setMoveToEntry(null)
+            await refreshPane(pane.id)
+          }}
+          onClose={() => setMoveToEntry(null)}
+        />
+      )}
+
+      {compareEntries && (
+        <CompareModal
+          items={compareEntries}
+          folderSizes={folderSizes}
+          fetchFolderSize={fetchFolderSize}
+          onClose={() => setCompareEntries(null)}
+        />
+      )}
     </div>
   )
 }
@@ -937,4 +1059,368 @@ function buildWebUrl(conn: { type: string; config: unknown }, path: string): str
   }
   if (!region) return null
   return `https://${bucket}.s3.${region}.amazonaws.com/${key}`
+}
+
+// ── Move To Modal ─────────────────────────────────────────────────────────────
+function MoveToModal({ sourceConnectionId, entries, onMove, onClose }: {
+  sourceConnectionId: string
+  entries: FileEntry[]
+  onMove: (destConnectionId: string, destDir: string) => Promise<void>
+  onClose: () => void
+}): JSX.Element {
+  const connections = useStore((s) => s.connections)
+  const [destConnId, setDestConnId] = React.useState(sourceConnectionId)
+  const [moving, setMoving] = React.useState(false)
+  const [pickedPath, setPickedPath] = React.useState<string | null>(null)
+
+  const destConn = connections.find((c) => c.id === destConnId) ?? connections[0]
+  const crossConnection = destConnId !== sourceConnectionId
+  const label = entries.length === 1 ? `"${entries[0].name}"` : `${entries.length} items`
+
+  async function handleMove(): Promise<void> {
+    if (!pickedPath || !destConn) return
+    setMoving(true)
+    try {
+      await onMove(destConn.id, pickedPath)
+    } finally {
+      setMoving(false)
+    }
+  }
+
+  const connPickerSlot = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+      <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Destination:</span>
+      <select
+        className="compare-conn-picker"
+        value={destConnId}
+        onChange={(ev) => { setDestConnId(ev.target.value); setPickedPath(null) }}
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        {connections.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+    </div>
+  )
+
+  return destConn ? (
+    <FolderBrowserModal
+      connectionId={destConn.id}
+      connectionName={destConn.name}
+      initialPath=""
+      headerSlot={connPickerSlot}
+      onSelect={(path) => setPickedPath(path)}
+      onClose={onClose}
+      headerFooter={
+        <>
+          {pickedPath && (
+            <div className="move-to-warning" style={{ margin: '0 16px 0' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>warning</span>
+              <span>
+                {crossConnection
+                  ? <>This will <strong>transfer</strong> {label} to <strong>{destConn.name}</strong> and delete the original.</>
+                  : <>This will <strong>move</strong> {label} — it will be removed from the source location.</>
+                }
+              </span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '8px 16px 16px' }}>
+            <button className="btn ghost" onClick={onClose}>Cancel</button>
+            <button className="btn primary" disabled={!pickedPath || moving} onClick={() => void handleMove()}>
+              {moving ? (crossConnection ? 'Transferring…' : 'Moving…') : (crossConnection ? 'Transfer & Delete Original' : 'Move Here')}
+            </button>
+          </div>
+        </>
+      }
+    />
+  ) : null
+}
+
+// ── Compare Modal ─────────────────────────────────────────────────────────────
+function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClose }: {
+  items: Array<{ entry: FileEntry; connectionId: string }>
+  folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
+  fetchFolderSize: (path: string) => void
+  onClose: () => void
+}): JSX.Element {
+  const connections = useStore((s) => s.connections)
+  const [items, setItems] = React.useState(initialItems)
+  const [stats, setStats] = React.useState<Record<string, FileEntry | null>>({})
+  const [checksums, setChecksums] = React.useState<Record<string, string | null | 'loading'>>({})
+  const [contents, setContents] = React.useState<Record<string, { files: number; folders: number } | null | 'loading'>>({})
+  const [addingItem, setAddingItem] = React.useState(false)
+  const [addConnId, setAddConnId] = React.useState(connections[0]?.id ?? '')
+
+  function loadItem(entry: FileEntry, connId: string): void {
+    void window.conduit.fs.stat(connId, entry.path).then((s) =>
+      setStats((prev) => ({ ...prev, [entry.path]: s }))
+    )
+    if (entry.kind === 'file') {
+      setChecksums((prev) => ({ ...prev, [entry.path]: 'loading' }))
+      void window.conduit.fs.checksum(connId, entry.path).then((c) =>
+        setChecksums((prev) => ({ ...prev, [entry.path]: c }))
+      )
+    } else {
+      setContents((prev) => ({ ...prev, [entry.path]: 'loading' }))
+      void window.conduit.fs.folderContents(connId, entry.path).then((c) =>
+        setContents((prev) => ({ ...prev, [entry.path]: c }))
+      )
+      fetchFolderSize(entry.path)
+    }
+  }
+
+  React.useEffect(() => {
+    for (const { entry, connectionId } of items) loadItem(entry, connectionId)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Derived comparison values ──────────────────────────────────────────────
+  const entries = items.map((i) => i.entry)
+
+  const sizes = entries.map((e) => {
+    if (e.kind === 'file') return stats[e.path]?.size ?? e.size ?? 0
+    const fsz = folderSizes[e.path]
+    return (fsz && typeof fsz === 'object') ? fsz.size : null
+  })
+  const allSizesLoaded = sizes.every((s) => s !== null)
+  const sizesMatch = allSizesLoaded && sizes.every((s) => s === sizes[0])
+
+  const itemCounts = entries.map((e) => {
+    if (e.kind === 'file') return null
+    const c = contents[e.path]
+    if (!c || c === 'loading') return null
+    return c.files + c.folders
+  })
+  const allCountsLoaded = itemCounts.every((c) => c !== null)
+  const countsMatch = allCountsLoaded && itemCounts.every((c) => c === itemCounts[0])
+
+  const filesLoaded = entries.map((e) => {
+    if (e.kind === 'file') return null
+    const c = contents[e.path]
+    if (!c || c === 'loading') return null
+    return c.files
+  })
+  const allFilesLoaded = filesLoaded.every((c) => c !== null)
+  const filesMatch = allFilesLoaded && filesLoaded.every((c) => c === filesLoaded[0])
+
+  const foldersLoaded = entries.map((e) => {
+    if (e.kind === 'file') return null
+    const c = contents[e.path]
+    if (!c || c === 'loading') return null
+    return c.folders
+  })
+  const allFoldersLoaded = foldersLoaded.every((c) => c !== null)
+  const foldersMatch = allFoldersLoaded && foldersLoaded.every((c) => c === foldersLoaded[0])
+
+  const checksumValues = entries.map((e) => checksums[e.path])
+  const checksumsLoaded = checksumValues.every((c) => c !== undefined && c !== 'loading')
+  const checksumsMatch = checksumsLoaded && checksumValues.every((c) => c && c === checksumValues[0])
+
+  const modValues = entries.map((e) => e.modified ?? null)
+  const allModLoaded = modValues.every((m) => m !== null)
+  const modMatch = allModLoaded && modValues.every((m) => m === modValues[0])
+
+  const kindValues = entries.map((e) => e.kind)
+  const kindsMatch = kindValues.every((k) => k === kindValues[0])
+
+  const typeValues = entries.map((e) => fileType(e.name, e.kind))
+  const typesMatch = typeValues.every((t) => t === typeValues[0])
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function legendBadge(match: boolean, loaded: boolean): JSX.Element {
+    if (!loaded) return <span className="compare-badge loading">Checking…</span>
+    return match
+      ? <span className="compare-badge match">✓ Match</span>
+      : <span className="compare-badge mismatch">✗ Mismatch</span>
+  }
+
+  function matchIcon(match: boolean, loaded: boolean): JSX.Element | null {
+    if (!loaded) return null
+    return match
+      ? <span className="compare-check match" title="Matches across all items">✓</span>
+      : <span className="compare-check mismatch" title="Does not match across all items">✗</span>
+  }
+
+  if (addingItem) {
+    const addConn = connections.find((c) => c.id === addConnId) ?? connections[0]
+    const connPickerSlot = (
+      <select
+        className="compare-conn-picker"
+        value={addConnId}
+        onChange={(ev) => setAddConnId(ev.target.value)}
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        {connections.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+    )
+    return addConn ? (
+      <FolderBrowserModal
+        connectionId={addConn.id}
+        connectionName={addConn.name}
+        initialPath=""
+        showFiles
+        headerSlot={connPickerSlot}
+        onSelectEntry={(entry) => {
+          setItems((prev) => [...prev, { entry, connectionId: addConn.id }])
+          loadItem(entry, addConn.id)
+          setAddingItem(false)
+        }}
+        onSelect={(path) => {
+          const syntheticEntry: FileEntry = { path, name: path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? path, kind: 'directory', size: 0 }
+          setItems((prev) => [...prev, { entry: syntheticEntry, connectionId: addConn.id }])
+          loadItem(syntheticEntry, addConn.id)
+          setAddingItem(false)
+        }}
+        onClose={() => setAddingItem(false)}
+      />
+    ) : null
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={onClose}>
+      <div className="compare-panel" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="info-header">
+          <div>
+            <div className="info-title">Compare {items.length} items</div>
+            <div className="compare-paths">
+              {items.map(({ entry, connectionId }) => {
+                const connName = connections.find((c) => c.id === connectionId)?.name ?? connectionId
+                return (
+                  <span key={entry.path} className="compare-path-chip" title={entry.path}>
+                    <span className="compare-path-conn">{connName}:</span> {entry.path}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <button className="btn ghost" style={{ fontSize: 12 }} onClick={() => setAddingItem(true)}>+ Add item</button>
+            <button className="iconbtn" onClick={onClose}>✕</button>
+          </div>
+        </div>
+
+        {/* Legend / summary */}
+        <div className="compare-summary">
+          <span className="compare-legend-label">Legend:</span>
+          <span className="compare-badge match">✓ Match</span>
+          <span className="compare-badge mismatch">✗ Mismatch</span>
+          <div className="compare-summary-divider" />
+          <div className="compare-summary-item">
+            <span className="compare-summary-label">Size</span>
+            {legendBadge(sizesMatch, allSizesLoaded)}
+          </div>
+          {entries[0].kind === 'directory' && <>
+            <div className="compare-summary-item">
+              <span className="compare-summary-label">Total Items</span>
+              {legendBadge(countsMatch, allCountsLoaded)}
+            </div>
+            <div className="compare-summary-item">
+              <span className="compare-summary-label">Files</span>
+              {legendBadge(filesMatch, allFilesLoaded)}
+            </div>
+            <div className="compare-summary-item">
+              <span className="compare-summary-label">Folders</span>
+              {legendBadge(foldersMatch, allFoldersLoaded)}
+            </div>
+          </>}
+          {entries[0].kind === 'file' && (
+            <div className="compare-summary-item">
+              <span className="compare-summary-label">Checksum</span>
+              {legendBadge(checksumsMatch, checksumsLoaded)}
+            </div>
+          )}
+        </div>
+
+        {/* Per-item columns */}
+        <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}>
+          {items.map(({ entry: e, connectionId }) => {
+            const conn = connections.find((c) => c.id === connectionId) ?? null
+            const connName = conn?.name ?? connectionId
+            const fsz = folderSizes[e.path]
+            const itemSize = e.kind === 'file'
+              ? (stats[e.path]?.size ?? e.size ?? 0)
+              : (fsz && typeof fsz === 'object') ? fsz.size : null
+            const itemCount = contents[e.path]
+            const checksum = checksums[e.path]
+            const webUrl = conn ? buildWebUrl(conn, e.path) : null
+
+            return (
+              <div key={`${connectionId}:${e.path}`} className="compare-col">
+                <div className="compare-col-conn">{connName}</div>
+                <div className="compare-col-name" title={e.path}>{e.name}</div>
+
+                <CompareField label="Kind" matchIcon={matchIcon(kindsMatch, true)}>
+                  {e.kind === 'directory' ? 'Folder' : 'File'}
+                </CompareField>
+
+                <CompareField label="Type" matchIcon={matchIcon(typesMatch, true)}>
+                  {fileType(e.name, e.kind)}
+                </CompareField>
+
+                <CompareField label="Path" mono>
+                  {e.path}
+                </CompareField>
+
+                {webUrl && (
+                  <CompareField label="URL" mono>
+                    {webUrl}
+                  </CompareField>
+                )}
+
+                <CompareField label="Size" matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
+                  {itemSize === null ? 'Calculating…' : itemSize === 0 ? '—' : formatBytes(itemSize)}
+                </CompareField>
+
+                <CompareField label="Bytes" mono matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
+                  {itemSize === null ? '—' : itemSize === 0 ? '0' : itemSize.toLocaleString()}
+                </CompareField>
+
+                <CompareField label="Modified" matchIcon={matchIcon(modMatch, allModLoaded)}>
+                  {e.modified ? formatDate(e.modified) : '—'}
+                </CompareField>
+
+                {e.kind === 'directory' && <>
+                  <CompareField label="Total Items" matchIcon={matchIcon(countsMatch, allCountsLoaded)}>
+                    {!itemCount || itemCount === 'loading'
+                      ? 'Counting…'
+                      : (itemCount.files + itemCount.folders).toLocaleString()}
+                  </CompareField>
+                  <CompareField label="Files" matchIcon={matchIcon(filesMatch, allFilesLoaded)}>
+                    {!itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.files.toLocaleString()}
+                  </CompareField>
+                  <CompareField label="Folders" matchIcon={matchIcon(foldersMatch, allFoldersLoaded)}>
+                    {!itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.folders.toLocaleString()}
+                  </CompareField>
+                </>}
+
+                {e.kind === 'file' && (
+                  <CompareField label="Checksum" mono matchIcon={matchIcon(checksumsMatch, checksumsLoaded)}>
+                    {checksum === 'loading' ? 'Loading…' : (checksum ?? 'N/A')}
+                  </CompareField>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CompareField({ label, children, mono, matchIcon }: {
+  label: string
+  children: React.ReactNode
+  mono?: boolean
+  matchIcon?: JSX.Element | null
+}): JSX.Element {
+  return (
+    <div className="compare-field">
+      <div className="compare-field-header">
+        <span className="compare-field-label">{label}</span>
+        {matchIcon}
+      </div>
+      <span className={mono ? 'compare-mono' : ''}>{children}</span>
+    </div>
+  )
 }

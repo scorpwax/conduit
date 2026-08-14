@@ -33,6 +33,9 @@ export default function App(): JSX.Element {
 	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [version, setVersion] = useState('')
 	const [transferPanelOpen, setTransferPanelOpen] = useState(false)
+	const [transfersDrawerOpen, setTransfersDrawerOpen] = useState(false)
+	const [syncsDrawerOpen, setSyncsDrawerOpen] = useState(false)
+	const [transferPanelHeight, setTransferPanelHeight] = useState(260)
 	const [downloadDir, setDownloadDir] = useState<string>('')
 	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
 
@@ -56,6 +59,9 @@ export default function App(): JSX.Element {
 			const state = await window.conduit.app.getUiState()
 			if (state) {
 				if (state.transferPanelOpen) setTransferPanelOpen(true)
+				if (state.transfersDrawerOpen === false) setTransfersDrawerOpen(false)
+				if (state.syncsDrawerOpen === false) setSyncsDrawerOpen(false)
+				if (state.transferPanelHeight) setTransferPanelHeight(state.transferPanelHeight)
 				if (state.panes && state.panes.length > 1) {
 					// Re-add extra panes (store starts with 2 by default, so this handles 3+)
 					const store = useStore.getState()
@@ -74,9 +80,12 @@ export default function App(): JSX.Element {
 	useEffect(() => {
 		void window.conduit.app.saveUiState({
 			transferPanelOpen,
+			transfersDrawerOpen,
+			syncsDrawerOpen,
+			transferPanelHeight,
 			panes: panes.map((p) => ({ connectionId: p.connectionId, path: p.path }))
 		})
-	}, [panes.length, transferPanelOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+	}, [panes.length, transferPanelOpen, transfersDrawerOpen, syncsDrawerOpen, transferPanelHeight]) // eslint-disable-line react-hooks/exhaustive-deps
 
 	// Fire a macOS notification when a transfer batch finishes.
 	const prevAllFinishedRef = useRef(false)
@@ -284,7 +293,16 @@ export default function App(): JSX.Element {
 				</div>
 			</div>
 
-			<TransferPanel open={transferPanelOpen} onOpenChange={setTransferPanelOpen} />
+			<TransferPanel
+					open={transferPanelOpen}
+					onOpenChange={setTransferPanelOpen}
+					transfersOpen={transfersDrawerOpen}
+					onTransfersOpenChange={setTransfersDrawerOpen}
+					syncsOpen={syncsDrawerOpen}
+					onSyncsOpenChange={setSyncsDrawerOpen}
+					initialHeight={transferPanelHeight}
+					onHeightChange={setTransferPanelHeight}
+				/>
 
 			<ConflictModal />
 
@@ -292,7 +310,7 @@ export default function App(): JSX.Element {
 			{syncOpen && (
 				<SyncPanel
 					onClose={() => setSyncOpen(false)}
-					onOpenTransferPanel={() => setTransferPanelOpen(true)}
+					onOpenTransferPanel={() => { setTransferPanelOpen(true); setSyncOpen(false) }}
 				/>
 			)}
 			{settingsOpen && (

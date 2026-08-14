@@ -188,6 +188,8 @@ export interface TransferItem {
   finishedAt?: number
   /** Byte offset to resume from (set by engine.retry when a partial file exists). */
   resumeFromOffset?: number
+  /** When true, delete the source file after a successful transfer (cross-connection move). */
+  deleteSourceAfter?: boolean
 }
 
 /** Request payload to enqueue a transfer of one or more items. */
@@ -207,6 +209,8 @@ export interface TransferRequest {
   conflictPolicy?: 'replace' | 'keepBoth'
   /** Resume a previously-interrupted download from this byte offset. */
   resumeFromOffset?: number
+  /** When true, each source file is deleted after it transfers successfully (cross-connection move). */
+  deleteSourceAfter?: boolean
 }
 
 export interface ConnectionTestResult {
@@ -364,6 +368,12 @@ export interface UiState {
   windowBounds?: { x: number; y: number; width: number; height: number }
   /** Whether the transfer panel is expanded. */
   transferPanelOpen: boolean
+  /** Whether the Transfers drawer inside the panel is open. */
+  transfersDrawerOpen?: boolean
+  /** Whether the Syncs drawer inside the panel is open. */
+  syncsDrawerOpen?: boolean
+  /** Height of the transfer panel in pixels. */
+  transferPanelHeight?: number
   /** Pane layout: connection + path only (no live result data). */
   panes: Array<{ connectionId: string | null; path: string }>
 }

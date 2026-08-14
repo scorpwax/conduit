@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import type { SyncPreviewItem, SyncProgress, SyncRunStats, SyncTask } from '@shared/types'
+import type { SyncPreviewItem, SyncProgress, SyncTask } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { useStore } from '../store'
 
 interface Props {
   task: SyncTask
   onClose: () => void
-  onComplete: (stats: SyncRunStats) => void
   onExecuteInBackground?: () => void
 }
 
-type Phase = 'scanning' | 'preview' | 'executing' | 'done' | 'error'
+type Phase = 'scanning' | 'preview' | 'error'
 type Filter = 'all' | 'changes' | 'conflicts' | 'unchanged'
 
 function fmtBytes(bytes: number): string {
@@ -45,13 +44,12 @@ const ACTION_LABELS: Record<SyncPreviewItem['action'], string> = {
   unchanged: 'Unchanged'
 }
 
-export function SyncPreviewModal({ task, onClose, onComplete, onExecuteInBackground }: Props): JSX.Element {
+export function SyncPreviewModal({ task, onClose, onExecuteInBackground }: Props): JSX.Element {
   const executeSyncInBackground = useStore((s) => s.executeSyncInBackground)
   const [phase, setPhase] = useState<Phase>('scanning')
   const [items, setItems] = useState<SyncPreviewItem[]>([])
   const [filter, setFilter] = useState<Filter>('all')
   const [progress, setProgress] = useState<SyncProgress | null>(null)
-  const [stats, setStats] = useState<SyncRunStats | null>(null)
   const [error, setError] = useState('')
   const taskIdRef = useRef(task.id)
   const sentToBackgroundRef = useRef(false)
@@ -111,20 +109,7 @@ export function SyncPreviewModal({ task, onClose, onComplete, onExecuteInBackgro
     updateItem(path, { conflictWinner: winner, excluded: winner === 'skip' })
   }, [updateItem])
 
-  async function handleExecute(): Promise<void> {
-    setPhase('executing')
-    try {
-      const result = await window.conduit.sync.execute(task.id, task, items)
-      setStats(result)
-      setPhase('done')
-      onComplete(result)
-    } catch (err) {
-      setError((err as Error).message)
-      setPhase('error')
-    }
-  }
-
-  function handleExecuteInBackground(): void {
+  function handleExecute(): void {
     sentToBackgroundRef.current = true
     executeSyncInBackground(task, items)
     onExecuteInBackground?.()
@@ -294,46 +279,14 @@ export function SyncPreviewModal({ task, onClose, onComplete, onExecuteInBackgro
               })}
             </div>
 
-            {phase === 'executing' && progress && (
-              <div className="sp-exec-progress">
-                <div className="sp-exec-bar">
-                  <div
-                    className="sp-exec-fill"
-                    style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
-                  />
-                </div>
-                <span className="sp-exec-label">
-                  {progress.current}/{progress.total} — {progress.currentPath ?? ''}
-                </span>
-              </div>
-            )}
-
-            {phase === 'done' && stats && (
-              <div className="sp-done-bar">
-                ✓ Sync complete — {stats.copied} copied, {stats.deleted} deleted
-                {stats.errors > 0 && <span className="sp-done-err">, {stats.errors} errors</span>}
-              </div>
-            )}
-
             <div className="modal-footer">
-              <button className="btn ghost" onClick={onClose} disabled={phase === 'executing'}>
-                {phase === 'done' ? 'Close' : 'Cancel'}
-              </button>
-              {phase === 'preview' && counts.total > 0 && (
-                <button
-                  className="btn ghost"
-                  onClick={handleExecuteInBackground}
-                  title="Run sync in the background — track progress in the Transfers panel"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: 'middle' }}>send_to_mobile</span>
-                  {' '}Run in Background
-                </button>
-              )}
+              <button className="btn ghost" onClick={onClose}>Cancel</button>
               {phase === 'preview' && (
                 <button
                   className="btn primary"
-                  onClick={() => void handleExecute()}
+                  onClick={handleExecute}
                   disabled={counts.total === 0}
+                  title="Run sync and track progress in the Transfers panel"
                 >
                   Execute {counts.total > 0 ? `${counts.total} change${counts.total !== 1 ? 's' : ''}` : '(no changes)'}
                 </button>

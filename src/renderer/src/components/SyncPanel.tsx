@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { SyncRunStats, SyncTask } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { SyncTask } from '@shared/types'
 import { useStore } from '../store'
 import { SyncTaskModal } from './SyncTaskModal'
 import { SyncPreviewModal } from './SyncPreviewModal'
@@ -76,6 +76,8 @@ export function SyncPanel({ onClose, onOpenTransferPanel }: Props): JSX.Element 
   const removeFromSyncQueue = useStore((s) => s.removeFromSyncQueue)
   const clearSyncQueue = useStore((s) => s.clearSyncQueue)
   const runSyncQueue = useStore((s) => s.runSyncQueue)
+  const syncRuns = useStore((s) => s.syncRuns)
+  const seenRunIds = useRef(new Set<string>())
 
   useEffect(() => {
     void window.conduit.sync.getTasks().then((t) => {
@@ -83,6 +85,16 @@ export function SyncPanel({ onClose, onOpenTransferPanel }: Props): JSX.Element 
       if (t.length > 0) setSelectedId(t[0].id)
     })
   }, [])
+
+  // Refresh task list whenever a sync run finishes (updates lastRun/lastRunResult on the task).
+  useEffect(() => {
+    for (const run of syncRuns) {
+      if (run.phase !== 'running' && !seenRunIds.current.has(run.runId)) {
+        seenRunIds.current.add(run.runId)
+        void window.conduit.sync.getTasks().then(setTasks)
+      }
+    }
+  }, [syncRuns])
 
   const selected = tasks.find((t) => t.id === selectedId) ?? null
 
@@ -124,11 +136,6 @@ export function SyncPanel({ onClose, onOpenTransferPanel }: Props): JSX.Element 
     setSelectedId(copy.id)
   }
 
-  function handlePreviewComplete(stats: SyncRunStats): void {
-    void window.conduit.sync.getTasks().then(setTasks)
-    void stats
-  }
-
   return (
     <div className="sync-panel">
       <div className="sync-header">
@@ -136,6 +143,19 @@ export function SyncPanel({ onClose, onOpenTransferPanel }: Props): JSX.Element 
         <div className="sync-header-left">
           <span className="material-symbols-outlined sync-header-icon">sync</span>
           <span className="sync-header-title">Sync Tasks</span>
+          {syncRuns.some((r) => r.phase === 'running') && (
+            <button
+              className="sync-active-badge"
+              onClick={onOpenTransferPanel}
+              title="View sync progress in the Transfers panel"
+            >
+              <span className="sync-active-dot" />
+              {syncRuns.filter((r) => r.phase === 'running').length === 1
+                ? syncRuns.find((r) => r.phase === 'running')!.taskName
+                : `${syncRuns.filter((r) => r.phase === 'running').length} syncs running`}
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>open_in_new</span>
+            </button>
+          )}
         </div>
         <div className="sync-header-right">
           <button
@@ -315,10 +335,6 @@ export function SyncPanel({ onClose, onOpenTransferPanel }: Props): JSX.Element 
         <SyncPreviewModal
           task={previewTask}
           onClose={() => setPreviewTask(null)}
-          onComplete={(stats) => {
-            setPreviewTask(null)
-            handlePreviewComplete(stats)
-          }}
           onExecuteInBackground={() => {
             setPreviewTask(null)
             onOpenTransferPanel?.()

@@ -5,7 +5,23 @@ import { useStore } from '../store'
 import { formatBytes, formatSpeed } from '../lib/format'
 import { confirmDialog } from '../lib/dialog'
 
-export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenChange?: (open: boolean) => void }): JSX.Element {
+interface TransferPanelProps {
+	open?: boolean
+	onOpenChange?: (open: boolean) => void
+	transfersOpen?: boolean
+	onTransfersOpenChange?: (open: boolean) => void
+	syncsOpen?: boolean
+	onSyncsOpenChange?: (open: boolean) => void
+	initialHeight?: number
+	onHeightChange?: (h: number) => void
+}
+
+export function TransferPanel({
+	open, onOpenChange,
+	transfersOpen = true, onTransfersOpenChange,
+	syncsOpen = true, onSyncsOpenChange,
+	initialHeight = 260, onHeightChange
+}: TransferPanelProps): JSX.Element {
 	const transfers = useStore((s) => s.transfers)
 	const connections = useStore((s) => s.connections)
 	const setTransfers = useStore((s) => s.setTransfers)
@@ -15,6 +31,8 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	const clearFinishedSyncRuns = useStore((s) => s.clearFinishedSyncRuns)
 
 	const [collapsed, setCollapsed] = useState(() => !(open ?? false))
+	const [transfersCollapsed, setTransfersCollapsed] = useState(!transfersOpen)
+	const [syncsCollapsed, setSyncsCollapsed] = useState(!syncsOpen)
 	const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
 	// Tracks whether the user explicitly hit "Cancel All" so we can show
 	// "Transfers Cancelled" even if some files finished before the cancel landed.
@@ -38,7 +56,7 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	useEffect(() => {
 		if (transfers.length === 0) setCanceledAll(false)
 	}, [transfers.length])
-	const [height, setHeight] = useState(190)
+	const [height, setHeight] = useState(initialHeight)
 	const dragging = useRef(false)
 
 	// Tick every 250 ms — to keep elapsed time, speed, and per-row waiting timers live.
@@ -56,7 +74,9 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 		function onMove(e: MouseEvent): void {
 			if (!dragging.current) return
 			const h = window.innerHeight - e.clientY
-			setHeight(Math.max(120, Math.min(h, window.innerHeight - 200)))
+			const clamped = Math.max(120, Math.min(h, window.innerHeight - 200))
+			setHeight(clamped)
+			onHeightChange?.(clamped)
 		}
 		function onUp(): void {
 			dragging.current = false
@@ -218,91 +238,36 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 	const isWaitingForServer =
 		activeFiles.length > 0 && activeFiles.every((t) => t.bytesDone >= t.bytesTotal)
 
+	function toggleTransfers(): void {
+		const next = !transfersCollapsed
+		setTransfersCollapsed(next)
+		onTransfersOpenChange?.(!next)
+		// Expand the outer panel if it was collapsed.
+		if (collapsed && !next) { setCollapsed(false); onOpenChange?.(true) }
+	}
+
+	function toggleSyncs(): void {
+		const next = !syncsCollapsed
+		setSyncsCollapsed(next)
+		onSyncsOpenChange?.(!next)
+		if (collapsed && !next) { setCollapsed(false); onOpenChange?.(true) }
+	}
+
 	return (
-		<div className="transfer-panel" style={{ height: collapsed ? 'auto' : height }}>
+		<div className="transfer-panel" style={{ height: (collapsed || (transfersCollapsed && syncsCollapsed)) ? 'auto' : height }}>
 			{!collapsed && (
 				<div
-					className={`transfer-resize ${dragging.current ? 'dragging' : ''}`}
+					className="transfer-resize"
 					onMouseDown={() => {
 						dragging.current = true
 						document.body.style.cursor = 'row-resize'
 					}}
 				/>
 			)}
-			<div className="transfer-header">
-				{/* Left toggle zone — clicking this collapses/expands the panel */}
-				<div className="transfer-header-toggle" onClick={() => { setCollapsed((v) => { onOpenChange?.(v); return !v }) }}>
-					<span style={{ color: 'var(--text-faint)', display: 'none' }}>{collapsed ? '▸' : '▾'}</span>
-					<span className="title">Transfers</span>
-					<span className="count">
-						{active.length > 0
-							? (() => {
-								const transferring = active.filter((t) => t.status === 'transferring')
-								const queued = active.filter((t) => t.status === 'queued')
-								const statusLine = isWaitingForServer
-									? `${transferring.length} file${transferring.length !== 1 ? 's' : ''} · ${formatBytes(totalBytes)} · Waiting for server…`
-									: [
-										transferring.length > 0 && `${transferring.length} uploading`,
-										queued.length > 0 && `${queued.length} queued`,
-										`${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}`,
-										effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
-									].filter(Boolean).join(' · ')
-								return (
-									<span>
-										<span>{statusLine}</span>
-										{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
-									</span>
-								)
-							})()
-							: canceledAll && allFinished
-								? <span className="transfers-cancelled">✕ Transfers Cancelled</span>
-								: allFinished
-									? <span className="transfers-complete">
-										<span><span className="material-symbols-outlined">check</span> Process Complete{summaryParts.length > 0 ? ` · ${summaryParts.join(' · ')}` : ''}</span>
-										{routes.length > 0 && <span className="transfers-route">{routes.join('  ·  ')}</span>}
-									</span>
-									: transfers.length === 0
-										? 'No Transfers'
-										: `${done.length} done${failed.length ? ` · ${failed.length} failed` : ''}${canceled.length ? ` · ${canceled.length} cancelled` : ''}`}
-					</span>
-				</div>
-				{/* Right action buttons — isolated from the toggle zone */}
-				<div className="transfer-header-actions">
-					{active.length > 0 && (
-						<button
-							className="btn ghost"
-							onClick={() => {
-								void (async () => {
-									const ok = await confirmDialog({
-										title: 'Cancel all transfers?',
-										warning: 'This will stop all active and queued transfers.',
-										confirmText: 'Cancel All',
-										danger: true
-									})
-									if (!ok) return
-									setCanceledAll(true)
-									await window.conduit.transfer.cancelAll()
-									const all = await window.conduit.transfer.getAll()
-									setTransfers(all)
-								})()
-							}}
-						>
-							Cancel all
-						</button>
-					)}
-					{(done.length > 0 || failed.length > 0) && (
-						<button
-							className="btn ghost"
-							onClick={() => void clearFinished()}
-						>
-							Clear
-						</button>
-					)}
-				</div>
-			</div>
 
+			{/* ── Overall progress strip — always visible when transfers are active ── */}
 			{(active.length > 0 || (allFinished && totalBytes > 0)) && (
-				<div className="overall-progress">
+				<div className="overall-progress overall-progress-strip">
 					<div className="overall-bar-track">
 						<div
 							className={`overall-bar-fill${isWaitingForServer ? ' finalizing' : ''}`}
@@ -310,82 +275,158 @@ export function TransferPanel({ open, onOpenChange }: { open?: boolean; onOpenCh
 						/>
 					</div>
 					<div className="overall-times">
-						<span className="ot-label">Elapsed: {formatDuration(elapsed)}</span>
-						<span className="ot-pct">
-							{isWaitingForServer ? 'Waiting for server…' : `${overallPct}%`}
+						<span className="ot-label">
+							{isWaitingForServer
+								? 'Waiting for server…'
+								: active.length > 0
+									? (() => {
+										const transferring = active.filter((t) => t.status === 'transferring')
+										const queued = active.filter((t) => t.status === 'queued')
+										return [
+											transferring.length > 0 && `${transferring.length} uploading`,
+											queued.length > 0 && `${queued.length} queued`,
+											`${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}`,
+											effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
+										].filter(Boolean).join(' · ')
+									})()
+									: canceledAll
+										? '✕ Transfers Cancelled'
+										: `✓ Process Complete${summaryParts.length > 0 ? ' · ' + summaryParts.join(' · ') : ''}`
+							}
 						</span>
+						<span className="ot-pct">{isWaitingForServer ? '' : `${overallPct}%`}</span>
 						<span className="ot-label">
 							{!isWaitingForServer && remaining !== null && remaining > 1
 								? `~${formatDuration(remaining * 1000)} left`
-								: ''}
+								: active.length > 0 ? `Elapsed: ${formatDuration(elapsed)}` : ''}
 						</span>
 					</div>
 				</div>
 			)}
 
-			{!collapsed && isOffline && active.length > 0 && (
-				<div className="transfer-offline-banner">
-					<span className="transfer-offline-icon">⚠</span>
-					<span>Connection lost — transfers paused and will resume when you're reconnected.</span>
+			{/* ── Transfers drawer ──────────────────────────────────────────────── */}
+			<div className="tp-drawer">
+				<div className="tp-drawer-header" onClick={toggleTransfers}>
+					<span className="material-symbols-outlined tp-drawer-chevron">
+						{transfersCollapsed ? 'chevron_right' : 'expand_more'}
+					</span>
+					<span className="tp-drawer-label">Transfers</span>
+					<div className="tp-drawer-actions" onClick={(e) => e.stopPropagation()}>
+						{active.length > 0 && (
+							<button
+								className="btn ghost"
+								onClick={() => {
+									void (async () => {
+										const ok = await confirmDialog({
+											title: 'Cancel all transfers?',
+											warning: 'This will stop all active and queued transfers.',
+											confirmText: 'Cancel All',
+											danger: true
+										})
+										if (!ok) return
+										setCanceledAll(true)
+										await window.conduit.transfer.cancelAll()
+										const all = await window.conduit.transfer.getAll()
+										setTransfers(all)
+									})()
+								}}
+							>
+								Cancel all
+							</button>
+						)}
+						{(done.length > 0 || failed.length > 0) && (
+							<button className="btn ghost" onClick={() => void clearFinished()}>Clear</button>
+						)}
+					</div>
 				</div>
-			)}
 
-			{!collapsed && syncRuns.length > 0 && (
-				<div className="sync-run-list">
-					<div className="sync-run-header">
-						<span>Sync</span>
+				{!transfersCollapsed && (
+					<div className="tp-drawer-body">
+						{isOffline && active.length > 0 && (
+							<div className="transfer-offline-banner">
+								<span className="transfer-offline-icon">⚠</span>
+								<span>Connection lost — transfers paused and will resume when you're reconnected.</span>
+							</div>
+						)}
+						<div className="transfer-list">
+							{transfers.length === 0 ? (
+								<div className="transfer-empty tp-empty">No active transfers. Drag files between panes to start one.</div>
+							) : (
+								<>
+									{sorted.map((t) => {
+										const rowIsWaiting = t.status === 'transferring' && t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal
+										const waitElapsed = rowIsWaiting
+											? now - (waitingStartRef.current.get(t.id) ?? now)
+											: null
+										const fallbackSpeed = t.status === 'transferring' && activeFiles.length > 0
+											? effectiveSpeed / activeFiles.length
+											: 0
+										const canReveal = t.status === 'done' && t.kind === 'file'
+											&& t.dest.connectionId === BUILTIN_LOCAL_ID
+											&& window.conduit.platform === 'darwin'
+										return (
+											<MemoRow
+												key={t.id}
+												item={t}
+												id={t.id}
+												cancelTransfer={cancelTransfer}
+												waitElapsed={waitElapsed}
+												fallbackSpeed={fallbackSpeed}
+												canReveal={canReveal}
+											/>
+										)
+									})}
+									{hiddenCount > 0 && (
+										<div className="transfer-hidden-count">
+											+ {hiddenCount.toLocaleString()} more completed — click Clear to dismiss
+										</div>
+									)}
+								</>
+							)}
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* ── Syncs drawer ──────────────────────────────────────────────────── */}
+			<div className="tp-drawer tp-drawer-syncs">
+				<div className="tp-drawer-header" onClick={toggleSyncs}>
+					<span className="material-symbols-outlined tp-drawer-chevron">
+						{syncsCollapsed ? 'chevron_right' : 'expand_more'}
+					</span>
+					<span className="tp-drawer-label">Syncs</span>
+					<div className="tp-drawer-actions" onClick={(e) => e.stopPropagation()}>
 						{syncRuns.some((r) => r.phase !== 'running') && (
 							<button className="btn ghost" onClick={clearFinishedSyncRuns}>Clear</button>
 						)}
 					</div>
-					{syncRuns.map((run) => <SyncRunRow key={run.runId} run={run} />)}
 				</div>
-			)}
 
-			{!collapsed && (
-				<div className="transfer-list">
-					{transfers.length === 0 ? (
-						<div className="transfer-empty">
-							{syncRuns.length > 0 ? 'No file transfers.' : 'Drag files between panes to start a transfer. Progress shows here.'}
-						</div>
-					) : (
-						<>
-							{sorted.map((t) => {
-								// Only pass a live elapsed value to rows that are waiting for the server.
-								// Non-waiting rows receive null — React.memo sees null===null and skips
-								// re-rendering those rows on every 250ms tick.
-								const rowIsWaiting = t.status === 'transferring' && t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal
-								const waitElapsed = rowIsWaiting
-									? now - (waitingStartRef.current.get(t.id) ?? now)
-									: null
-								// Fallback speed: distribute renderer-measured speed across active files.
-								const fallbackSpeed = t.status === 'transferring' && activeFiles.length > 0
-									? effectiveSpeed / activeFiles.length
-									: 0
-								const canReveal = t.status === 'done' && t.kind === 'file'
-									&& t.dest.connectionId === BUILTIN_LOCAL_ID
-									&& window.conduit.platform === 'darwin'
-								return (
-									<MemoRow
-										key={t.id}
-										item={t}
-										id={t.id}
-										cancelTransfer={cancelTransfer}
-										waitElapsed={waitElapsed}
-										fallbackSpeed={fallbackSpeed}
-										canReveal={canReveal}
-									/>
-								)
-							})}
-							{hiddenCount > 0 && (
-								<div className="transfer-hidden-count">
-									+ {hiddenCount.toLocaleString()} more completed — click Clear to dismiss
+				{!syncsCollapsed && (
+					<div className="tp-drawer-body">
+						{syncRuns.length === 0 ? (
+							<div className="transfer-empty tp-empty">No active syncs. Start one from the Sync Tasks panel.</div>
+						) : (
+							<>
+								<div className="sync-run-status-line">
+									{(() => {
+										const running = syncRuns.filter((r) => r.phase === 'running').length
+										const errored = syncRuns.filter((r) => r.phase === 'error').length
+										const doneRuns = syncRuns.filter((r) => r.phase === 'done').length
+										if (running > 0 && syncRuns.length > 1)
+											return `Sync ${doneRuns + errored + 1} of ${syncRuns.length} in progress`
+										if (running > 0) return 'Sync in progress'
+										if (errored > 0 && doneRuns === 0) return 'Sync failed'
+										if (errored > 0) return 'Sync complete (with errors)'
+										return 'Sync complete'
+									})()}
 								</div>
-							)}
-						</>
-					)}
-				</div>
-			)}
+								{syncRuns.map((run) => <SyncRunRow key={run.runId} run={run} now={now} />)}
+							</>
+						)}
+					</div>
+				)}
+			</div>
 		</div>
 	)
 }
@@ -493,10 +534,24 @@ function statusGlyph(status: TransferItem['status']): string {
 	}
 }
 
-function SyncRunRow({ run }: { run: SyncRun }): JSX.Element {
+function SyncRunRow({ run, now }: { run: SyncRun; now: number }): JSX.Element {
 	const pct = run.progress && run.progress.total > 0
 		? Math.round((run.progress.current / run.progress.total) * 100)
 		: run.phase === 'done' ? 100 : 0
+
+	const elapsed = run.phase === 'running' ? now - run.startedAt : (run.stats?.durationMs ?? 0)
+
+	// Estimate remaining time based on files-per-ms rate once we have progress.
+	const remaining: number | null = (() => {
+		if (run.phase !== 'running' || !run.progress || run.progress.current < 2) return null
+		const rate = run.progress.current / (now - run.startedAt)
+		if (rate <= 0) return null
+		return (run.progress.total - run.progress.current) / rate
+	})()
+
+	function onCancel(): void {
+		void window.conduit.sync.cancel(run.taskId)
+	}
 
 	return (
 		<div className={`transfer-item sync-run-item ${run.phase}`}>
@@ -505,19 +560,35 @@ function SyncRunRow({ run }: { run: SyncRun }): JSX.Element {
 			</span>
 			<span className="tname" title={run.taskName}>{run.taskName}</span>
 			<span className="tmeta">
-				{run.phase === 'running' && run.progress
-					? `${run.progress.current} / ${run.progress.total} files`
-					: run.phase === 'done' && run.stats
-						? `${run.stats.copied} copied, ${run.stats.deleted} deleted`
-						: run.phase === 'error'
-							? run.error ?? 'Error'
-							: 'Scanning…'}
+				{run.phase === 'running'
+					? run.progress
+						? `${run.progress.current} / ${run.progress.total} files`
+						: 'Scanning…'
+					: run.phase === 'done'
+						? run.stats
+							? `${run.stats.copied} copied · ${run.stats.deleted} deleted · ${run.stats.errors > 0 ? `${run.stats.errors} errors` : 'no errors'}`
+							: 'Sync complete'
+						: run.error ?? 'Sync failed'}
 			</span>
 			<span className="tmeta">
-				{run.phase === 'running' && run.progress?.currentPath
-					? run.progress.currentPath.split('/').pop() ?? ''
-					: run.phase === 'done' ? '100%' : run.phase === 'running' ? `${pct}%` : ''}
+				{run.phase === 'running'
+					? remaining !== null && remaining > 1000
+						? `~${formatDuration(remaining)} left`
+						: elapsed > 0
+							? `${formatDuration(elapsed)} elapsed`
+							: `${pct}%`
+					: run.phase === 'done'
+						? `${formatDuration(elapsed)} · 100%`
+						: ''}
 			</span>
+			<button
+				className="iconbtn"
+				title="Cancel sync"
+				disabled={run.phase !== 'running'}
+				onClick={onCancel}
+			>
+				✕
+			</button>
 			{!run.stats && run.phase !== 'error' && (
 				<div className="pbar">
 					<span style={run.phase === 'running' ? { width: `${pct}%` } : { width: '100%' }} />

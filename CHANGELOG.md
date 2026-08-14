@@ -12,6 +12,30 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.24.0] — 2026-08-13
+
+### Added
+- **Rich connection picker in Sync Tasks** — the connection dropdowns in the Sync Task editor now match the main app: shows Favorites, all saved connections, and a "New Connection…" option to create one inline without leaving the sync form
+- **Files visible in Sync folder browser** — the folder browser inside Sync Task setup now shows files alongside folders so you can see exactly what's in a directory before selecting it
+- **Coffee Maker connection** — a surprise entry in the connection menu for the office espresso aficionado; reports connection latency of 3,000ms (grinding) and a throughput of 1 cup/session
+
+### Changed
+- **Sync execute is now non-blocking** — clicking Execute in the sync preview immediately closes the modal and routes progress to the Transfer panel; the rest of the app stays fully interactive while the sync runs
+- **Sync panel closes on execute** — executing a sync automatically closes the Sync panel and opens the Transfer panel so you can watch progress without extra clicks
+- **Root path auto-populates** — selecting a connection in the Sync Task editor now pre-fills the path field with that connection's configured root path
+
+### Improved
+- **Transfer panel redesigned as accordion** — the panel now has two independent collapsible drawers: **Transfers** and **Syncs**, each with their own header, empty state, and actions (Cancel All / Clear)
+- **Overall progress strip always visible** — the speed, route, and progress bar stay visible outside the drawers regardless of which drawer is open or collapsed
+- **Drawer state persisted across sessions** — the open/closed state of each drawer and the panel height are saved on quit and restored on next launch (both default to closed on first run)
+
+## [1.23.0] — 2026-08-13
+
+### Changed
+- **Sync runs non-blocking** — clicking Execute in the sync preview immediately closes the modal and tracks progress in the Transfers panel (same as file transfers), keeping the rest of the app fully interactive while a sync is running
+- **Sync cancel works** — the ✕ button on a running sync row in the Transfers panel now correctly stops the sync engine mid-run
+- **Elapsed & estimated remaining time** — running sync rows show elapsed time and, once enough files have been processed, an estimated time remaining
+
 ## [1.22.0] — 2026-08-07
 
 ### Added
