@@ -1150,6 +1150,7 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
   const [contents, setContents] = React.useState<Record<string, { files: number; folders: number } | null | 'loading'>>({})
   const [addingItem, setAddingItem] = React.useState(false)
   const [addConnId, setAddConnId] = React.useState(connections[0]?.id ?? '')
+  const [pendingAddPath, setPendingAddPath] = React.useState('')
 
   function loadItem(entry: FileEntry, connId: string): void {
     void window.conduit.fs.stat(connId, entry.path).then((s) =>
@@ -1215,7 +1216,7 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
   const checksumsLoaded = checksumValues.every((c) => c !== undefined && c !== 'loading')
   const checksumsMatch = checksumsLoaded && checksumValues.every((c) => c && c === checksumValues[0])
 
-  const modValues = entries.map((e) => e.modified ?? null)
+  const modValues = entries.map((e) => stats[e.path]?.modified ?? e.modified ?? null)
   const allModLoaded = modValues.every((m) => m !== null)
   const modMatch = allModLoaded && modValues.every((m) => m === modValues[0])
 
@@ -1246,7 +1247,7 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
       <select
         className="compare-conn-picker"
         value={addConnId}
-        onChange={(ev) => setAddConnId(ev.target.value)}
+        onChange={(ev) => { setAddConnId(ev.target.value); setPendingAddPath('') }}
         onClick={(ev) => ev.stopPropagation()}
       >
         {connections.map((c) => (
@@ -1254,6 +1255,14 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
         ))}
       </select>
     )
+    function confirmAdd(path: string, kind: 'file' | 'directory', size = 0, modified: string | null = null): void {
+      if (!addConn) return
+      const name = path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? path
+      const entry: FileEntry = { path, name, kind, size, modified }
+      setItems((prev) => [...prev, { entry, connectionId: addConn.id }])
+      loadItem(entry, addConn.id)
+      setAddingItem(false)
+    }
     return addConn ? (
       <FolderBrowserModal
         connectionId={addConn.id}
@@ -1261,17 +1270,17 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
         initialPath=""
         showFiles
         headerSlot={connPickerSlot}
-        onSelectEntry={(entry) => {
-          setItems((prev) => [...prev, { entry, connectionId: addConn.id }])
-          loadItem(entry, addConn.id)
-          setAddingItem(false)
-        }}
-        onSelect={(path) => {
-          const syntheticEntry: FileEntry = { path, name: path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? path, kind: 'directory', size: 0 }
-          setItems((prev) => [...prev, { entry: syntheticEntry, connectionId: addConn.id }])
-          loadItem(syntheticEntry, addConn.id)
-          setAddingItem(false)
-        }}
+        onSelectEntry={(entry) => confirmAdd(entry.path, entry.kind, entry.size, entry.modified)}
+        onSelect={(path) => setPendingAddPath(path)}
+        headerFooter={
+          <div className="modal-footer">
+            <span className="fb-selected-path">{pendingAddPath || '/'}</span>
+            <button className="btn ghost" onClick={() => setAddingItem(false)}>Cancel</button>
+            <button className="btn primary" onClick={() => confirmAdd(pendingAddPath || '/', 'directory')}>
+              Add to Compare
+            </button>
+          </div>
+        }
         onClose={() => setAddingItem(false)}
       />
     ) : null
@@ -1369,15 +1378,15 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
                 )}
 
                 <CompareField label="Size" matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
-                  {itemSize === null ? 'Calculating…' : itemSize === 0 ? '—' : formatBytes(itemSize)}
+                  {itemSize === null ? 'Calculating…' : (e.kind === 'file' && itemSize === 0 && stats[e.path] === undefined) ? 'Loading…' : itemSize === 0 ? '—' : formatBytes(itemSize)}
                 </CompareField>
 
                 <CompareField label="Bytes" mono matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
-                  {itemSize === null ? '—' : itemSize === 0 ? '0' : itemSize.toLocaleString()}
+                  {itemSize === null ? '—' : (e.kind === 'file' && itemSize === 0 && stats[e.path] === undefined) ? 'Loading…' : itemSize.toLocaleString()}
                 </CompareField>
 
                 <CompareField label="Modified" matchIcon={matchIcon(modMatch, allModLoaded)}>
-                  {e.modified ? formatDate(e.modified) : '—'}
+                  {(() => { const m = stats[e.path]?.modified ?? e.modified; return m ? formatDate(m) : stats[e.path] === undefined ? 'Loading…' : '—' })()}
                 </CompareField>
 
                 {e.kind === 'directory' && <>

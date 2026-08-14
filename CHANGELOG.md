@@ -12,6 +12,13 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.24.1] — 2026-08-13
+
+### Fixed
+- **Compare: Wasabi size/modified not loading** — the Compare modal now reads size and modified date from the stat result when the listing entry doesn't have them (common with some Wasabi objects); shows "Loading…" while waiting instead of "—"
+- **Compare: "+ Add item" closed immediately** — clicking "+ Add item" no longer instantly closes the folder browser; browse to a folder and click "Add to Compare", or click any file, to add it
+- **macOS permission popups** — added entitlements and usage description strings so macOS remembers file access grants across launches (Documents, Desktop, Downloads, external drives, network volumes)
+
 ## [1.24.0] — 2026-08-13
 
 ### Added

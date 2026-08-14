@@ -2497,8 +2497,15 @@ select {
 }
 
 @keyframes sync-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.75); }
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.4;
+        transform: scale(0.75);
+    }
 }
 
 .sync-body {
@@ -2875,13 +2882,35 @@ select {
     font-size: 13px;
     transition: border-color 0.15s;
 }
-.sync-conn-trigger:hover { border-color: var(--border-focus); }
-.sync-conn-trigger.open { border-color: var(--accent); }
+.sync-conn-trigger:hover {
+    border-color: var(--border-focus);
+}
+.sync-conn-trigger.open {
+    border-color: var(--accent);
+}
 
-.scp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scp-placeholder { flex: 1; color: var(--text-dim); }
-.scp-chevron { font-size: 18px; color: var(--text-dim); flex-shrink: 0; }
-.scp-check { color: var(--accent); font-size: 13px; margin-left: auto; flex-shrink: 0; }
+.scp-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.scp-placeholder {
+    flex: 1;
+    color: var(--text-dim);
+}
+.scp-chevron {
+    font-size: 18px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+.scp-check {
+    color: var(--accent);
+    font-size: 13px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
 
 .sync-conn-menu {
     position: absolute;
@@ -2892,14 +2921,27 @@ select {
     background: var(--bg-elev-2);
     border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     overflow: hidden;
     max-height: 320px;
     overflow-y: auto;
 }
-.sync-conn-menu .menu-item { padding: 8px 12px; }
-.sync-conn-menu .menu-label { padding: 4px 12px 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-faint); text-transform: uppercase; }
-.sync-conn-menu .menu-sep { height: 1px; background: var(--border); margin: 3px 0; }
+.sync-conn-menu .menu-item {
+    padding: 8px 12px;
+}
+.sync-conn-menu .menu-label {
+    padding: 4px 12px 2px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    text-transform: uppercase;
+}
+.sync-conn-menu .menu-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 3px 0;
+}
 
 .st-mode-grid {
     display: grid;
@@ -4147,6 +4189,7 @@ kbd {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    margin: 5px 0;
 }
 
 .compare-field-label {
@@ -4261,8 +4304,12 @@ kbd {
 }
 
 /* ── Coffee Maker easter egg ─────────────────────────────────────────────── */
-.coffee-menu-item .name { color: #c8a97e; }
-.coffee-menu-item .sub { color: #8c6a3f; }
+.coffee-menu-item .name {
+    color: #c8a97e;
+}
+.coffee-menu-item .sub {
+    color: #8c6a3f;
+}
 
 .coffee-modal {
     max-width: 380px;
@@ -4270,7 +4317,8 @@ kbd {
     padding: 32px 28px 28px;
 }
 
-.coffee-brewing, .coffee-ready {
+.coffee-brewing,
+.coffee-ready {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -4294,16 +4342,35 @@ kbd {
 }
 
 @keyframes coffee-steam {
-    from { opacity: 0.3; transform: translateY(4px); }
-    to   { opacity: 1;   transform: translateY(-2px); }
+    from {
+        opacity: 0.3;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
 }
 
-.coffee-cup { font-size: 52px; line-height: 1; }
-.coffee-cup-big { font-size: 72px; line-height: 1; animation: coffee-arrive 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+.coffee-cup {
+    font-size: 52px;
+    line-height: 1;
+}
+.coffee-cup-big {
+    font-size: 72px;
+    line-height: 1;
+    animation: coffee-arrive 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 
 @keyframes coffee-arrive {
-    from { transform: scale(0.4) rotate(-15deg); opacity: 0; }
-    to   { transform: scale(1) rotate(0deg); opacity: 1; }
+    from {
+        transform: scale(0.4) rotate(-15deg);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1) rotate(0deg);
+        opacity: 1;
+    }
 }
 
 .coffee-status {

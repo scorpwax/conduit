@@ -23,6 +23,13 @@ mac:
   category: public.app-category.utilities
   icon: build/icon.png
   identity: "MICHAEL ERIC WAX (UMCA2LMNU5)"
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSDocumentsFolderUsageDescription: Conduit needs access to browse and transfer files in your Documents folder.
+    NSDesktopFolderUsageDescription: Conduit needs access to browse and transfer files on your Desktop.
+    NSDownloadsFolderUsageDescription: Conduit needs access to browse and transfer files in your Downloads folder.
+    NSRemovableVolumesUsageDescription: Conduit needs access to browse and transfer files on external drives.
+    NSNetworkVolumesUsageDescription: Conduit needs access to browse and transfer files on network volumes.
 dmg:
   artifactName: Conduit-mac_${version}.dmg
   contents:
