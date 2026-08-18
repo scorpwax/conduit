@@ -303,18 +303,30 @@ export class S3Provider implements Provider {
 
     const oldPrefix = key.endsWith('/') ? key : key + '/'
     const newPrefix = parent + newName + '/'
+
+    // Collect ALL keys first across all pages before modifying anything.
+    // Deleting while paginating corrupts the continuation token and causes
+    // some objects to be skipped (left in the old location).
+    const allObjects: { key: string; size: number }[] = []
     let ContinuationToken: string | undefined
     do {
       const res = await this.client.send(
         new ListObjectsV2Command({ Bucket: this.cfg.bucket, Prefix: oldPrefix, ContinuationToken })
       )
       for (const o of res.Contents ?? []) {
-        const rel = o.Key!.slice(oldPrefix.length)
-        await this.copyObject(o.Key!, newPrefix + rel, o.Size)
-        await this.client.send(new DeleteObjectCommand({ Bucket: this.cfg.bucket, Key: o.Key! }))
+        allObjects.push({ key: o.Key!, size: o.Size ?? 0 })
       }
       ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined
     } while (ContinuationToken)
+
+    // Copy all objects to the new prefix, then delete all originals.
+    for (const { key: srcKey, size } of allObjects) {
+      const rel = srcKey.slice(oldPrefix.length)
+      await this.copyObject(srcKey, newPrefix + rel, size)
+    }
+    for (const { key: srcKey } of allObjects) {
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.cfg.bucket, Key: srcKey }))
+    }
   }
 
   /**

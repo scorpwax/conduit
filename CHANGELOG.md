@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.24.2] — 2026-08-18
+
+### Fixed
+- **S3/Wasabi folder rename leaves objects behind** — renaming a folder with many objects would skip some files because the code was deleting objects while still paginating the listing; S3 continuation tokens are position-based and shift when keys are deleted mid-scan. Now all keys are collected first, then everything is copied to the new name, then everything old is deleted.
+
 ## [1.24.1] — 2026-08-13
 
 ### Fixed
