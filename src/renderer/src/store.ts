@@ -113,7 +113,11 @@ interface AppState {
   createFolderInPane: (paneId: string, name: string) => Promise<void>
   createFileInPane: (paneId: string, name: string) => Promise<void>
   renameEntry: (paneId: string, path: string, newName: string) => Promise<void>
-  deleteEntries: (paneId: string, entries: { path: string; kind: 'file' | 'directory' }[]) => Promise<void>
+  deleteEntries: (
+    paneId: string,
+    entries: { path: string; kind: 'file' | 'directory' }[],
+    onItemSettled?: (path: string) => void
+  ) => Promise<void>
 
   // Sync runs (background sync execution tracked in TransferPanel)
   syncRuns: SyncRun[]
@@ -511,13 +515,24 @@ export const useStore = create<AppState>((set, get) => ({
     await get().refreshPane(paneId)
   },
 
-  async deleteEntries(paneId, entries) {
+  async deleteEntries(paneId, entries, onItemSettled) {
     const pane = get().panes.find((p) => p.id === paneId)
     if (!pane?.connectionId) return
-    for (const e of entries) {
-      await window.conduit.fs.delete(pane.connectionId, e.path, e.kind)
+    try {
+      for (const e of entries) {
+        try {
+          await window.conduit.fs.delete(pane.connectionId, e.path, e.kind)
+        } catch {
+          // One failed delete (permissions, in-use file, etc.) shouldn't abort
+          // the rest of the batch — it's already visible as an errored row in
+          // the Transfers panel; keep going so sibling items still get deleted.
+        } finally {
+          onItemSettled?.(e.path)
+        }
+      }
+    } finally {
+      await get().refreshPane(paneId)
     }
-    await get().refreshPane(paneId)
   },
 
   executeSyncInBackground(task, items) {

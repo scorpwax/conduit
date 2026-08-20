@@ -52,6 +52,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
   const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
   const [moveToEntry, setMoveToEntry] = useState<FileEntry[] | null>(null)
+  const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set())
   const [compareEntries, setCompareEntries] = useState<Array<{ entry: FileEntry; connectionId: string }> | null>(null)
 
   const [batchRenameOpen, setBatchRenameOpen] = useState(false)
@@ -310,8 +311,13 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       if (payload.fromPaneId === pane.id) {
         // Same-pane drag: MOVE (not copy) into the subfolder.
         if (!pane.connectionId) return
+        // Dropping a folder onto itself (or its own row) would otherwise reach
+        // the IPC handler and reject with a raw filesystem error — skip it here
+        // so the drag simply ends with no effect instead of surfacing an error.
+        if (payload.paths.includes(dir.path)) { clearDrag(); return }
         void window.conduit.fs.moveToDir(pane.connectionId, payload.paths, dir.path)
           .then(() => refreshPane(pane.id))
+          .catch((err) => void window.conduit.logs.write('error', 'fs', `Move failed: ${(err as Error).message}`))
         clearDrag()
       } else {
         void transferInto(dir.path)
@@ -402,9 +408,31 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       danger: true
     })
     if (!ok) return
+
+    // Keep each row visibly "deleting" for a minimum stretch even when the
+    // underlying operation finishes near-instantly (e.g. a small local file),
+    // so quick deletes still register as something actually happening rather
+    // than the row just vanishing with no feedback.
+    const MIN_VISIBLE_MS = 350
+    const startedAt = new Map(targets.map((t) => [t.path, Date.now()]))
+    const paths = targets.map((t) => t.path)
+    setDeletingPaths((prev) => new Set([...prev, ...paths]))
+
+    const clearWhenDue = (path: string): void => {
+      const elapsed = Date.now() - (startedAt.get(path) ?? 0)
+      setTimeout(() => {
+        setDeletingPaths((prev) => {
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      }, Math.max(0, MIN_VISIBLE_MS - elapsed))
+    }
+
     await deleteEntries(
       pane.id,
-      targets.map((t) => ({ path: t.path, kind: t.kind }))
+      targets.map((t) => ({ path: t.path, kind: t.kind })),
+      clearWhenDue
     )
   }
 
@@ -844,6 +872,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       ) : (
         rows.map(({ entry, depth }, i) => {
           const isDir = entry.kind === 'directory'
+          const isDeleting = deletingPaths.has(entry.path)
           return (
             <div
               key={entry.path}
@@ -852,12 +881,13 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 isDir ? 'dir' : '',
                 selected.has(entry.path) ? 'selected' : '',
                 entry.hidden ? 'hidden' : '',
-                dropDir === entry.path ? 'selected' : ''
+                dropDir === entry.path ? 'selected' : '',
+                isDeleting ? 'deleting' : ''
               ].join(' ')}
-              draggable
-              onClick={(e) => onRowClick(e, entry, i)}
-              onDoubleClick={() => onRowDoubleClick(entry)}
-              onContextMenu={(e) => openContextMenu(e, entry)}
+              draggable={!isDeleting}
+              onClick={(e) => !isDeleting && onRowClick(e, entry, i)}
+              onDoubleClick={() => !isDeleting && onRowDoubleClick(entry)}
+              onContextMenu={(e) => !isDeleting && openContextMenu(e, entry)}
               onDragStart={(e) => onDragStart(e, entry)}
               onDragEnd={clearDrag}
               onDragOver={
@@ -893,8 +923,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 ) : (
                   <span className="disclosure spacer">▶</span>
                 )}
-                <span className="ficon">{fileIcon(entry.name, entry.kind)}</span>
-                <span className="label">{entry.name}</span>
+                {isDeleting ? (
+                  <span className="ficon file-row-spinner" aria-hidden />
+                ) : (
+                  <span className="ficon">{fileIcon(entry.name, entry.kind)}</span>
+                )}
+                <span className="label">{entry.name}{isDeleting ? ' — deleting…' : ''}</span>
               </div>
               <div
                 className="file-size"
@@ -1082,6 +1116,8 @@ function MoveToModal({ sourceConnectionId, entries, onMove, onClose }: {
     setMoving(true)
     try {
       await onMove(destConn.id, pickedPath)
+    } catch (err) {
+      void window.conduit.logs.write('error', 'fs', `Move failed: ${(err as Error).message}`)
     } finally {
       setMoving(false)
     }

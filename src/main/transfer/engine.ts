@@ -31,7 +31,7 @@ class TransferEngine extends EventEmitter {
   private canceled = new Set<string>()
   private activeStreams = new Map<string, import('stream').Readable>()
   private running = 0
-  private concurrency = 4
+  private concurrency = 5
   private seq = 0
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
@@ -304,7 +304,12 @@ class TransferEngine extends EventEmitter {
    *                  non-failed operation with the same key is already in the queue,
    *                  this call is skipped to prevent duplicate entries.
    */
-  async trackOperation(label: string, action: () => Promise<void>, dedupKey = '', operationType?: TransferItem['operationType']): Promise<void> {
+  async trackOperation(
+    label: string,
+    action: (onProgress: (done: number, total: number) => void) => Promise<void>,
+    dedupKey = '',
+    operationType?: TransferItem['operationType']
+  ): Promise<void> {
     if (dedupKey) {
       const already = this.queue.find(
         (it) =>
@@ -334,8 +339,22 @@ class TransferEngine extends EventEmitter {
     this.queue.push(item)
     this.byId.set(item.id, item)
     this.emit('added', [item])
+
+    // Throttle progress emits the same way file transfers are (see the
+    // progressTimer above) — a large folder delete can report hundreds of
+    // batches; there's no need to push an IPC event for every single one.
+    let lastEmit = 0
+    const onProgress = (done: number, total: number): void => {
+      item.itemsDone = done
+      item.itemsTotal = total
+      const now = Date.now()
+      if (now - lastEmit < 200 && done < total) return
+      lastEmit = now
+      this.emit('update', [item])
+    }
+
     try {
-      await action()
+      await action(onProgress)
       item.status = 'done'
     } catch (err) {
       item.status = 'error'

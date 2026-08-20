@@ -925,10 +925,10 @@ select {
 }
 
 .transfer-item {
-    display: grid;
+    display: flex;
     grid-template-columns: 18px 1fr 130px 90px 28px;
     align-items: center;
-    gap: 10px;
+    gap: 16px;
     padding: 16px 14px;
     font-size: 12px;
     border-bottom: 3px solid var(--border-strong);
@@ -938,6 +938,7 @@ select {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
 }
 
 .transfer-item .tmeta {
@@ -1023,7 +1024,7 @@ select {
 
 /* Overall transfer progress bar */
 .overall-progress {
-    padding: 0 14px 8px;
+    padding: 10px 8px 14px 8px;
     flex: 0 0 auto;
     box-shadow: 0 5px 9px 0px rgba(0, 0, 0, 0.3);
 }
@@ -1046,7 +1047,7 @@ select {
 .overall-times {
     display: flex;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: 14px;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
 }
@@ -1941,6 +1942,23 @@ select {
     border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+.file-row.deleting {
+    opacity: 0.55;
+    pointer-events: none;
+    cursor: default;
+}
+
+.file-row-spinner {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--border);
+    border-top-color: var(--danger, var(--accent));
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
     flex-shrink: 0;
 }
 

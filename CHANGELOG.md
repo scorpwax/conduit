@@ -12,6 +12,25 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.25.0] — 2026-08-20
+
+### Added
+- **Quit confirmation for in-progress transfers** — quitting (Cmd+Q, the app menu, or the tray icon) while a transfer or delete is running now warns you first, separately from the existing active-connections warning
+- **Delete progress feedback** — deleting a file or folder now visibly marks the row as "deleting…" instead of giving no feedback until it vanishes; S3/Wasabi folder deletes show real "N / Total objects" progress instead of an indeterminate spinner
+- **Crash/hang recovery** — if the renderer ever crashes, the window now auto-reloads instead of staying blank indefinitely; transfers are never interrupted by this since they live in the main process
+- **Render error boundary** — an uncaught exception while rendering no longer blanks the whole window; it now shows a "Reload" prompt instead
+
+### Changed
+- Bumped Electron 32 → 43
+- The transfer summary line now correctly labels deletes and renames instead of calling every in-progress operation "uploading"
+
+### Fixed
+- **UI could go blank during very large transfers while the transfer kept running** — the transfer panel rendered one row per queued/transferring file with no cap. A batch of tens of thousands of files (common for image sequences or multi-track audio) could freeze or crash the renderer under that many DOM rows, while the transfer engine — which runs independently in the main process — kept working unaffected. The panel now caps rendered rows (always showing everything actively transferring, capping the queued tail) and shows a "+N more queued" summary instead.
+- **S3/Wasabi folder delete could skip objects** — same root cause already fixed for rename in v1.24.2: deleting objects while still paginating the listing shifts S3's continuation token and silently skips some. Delete now collects every key first, then deletes.
+- **Dragging/moving a folder onto itself crashed the move handler** — now rejected cleanly instead of attempting an invalid OS-level rename
+- **Cmd+Q and the app-menu Quit bypassed the new quit-confirmation** — `before-quit` was marking the quit as already-confirmed before the confirmation dialog ever ran
+- **"Connection Speed" default was silently 2 (Slow)** instead of the documented default of 5 (Balanced) for fresh installs
+
 ## [1.24.2] — 2026-08-18
 
 ### Fixed

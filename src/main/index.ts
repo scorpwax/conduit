@@ -36,14 +36,33 @@ const sendToRenderer = (channel: string, payload: unknown): void => {
     }
   }
 }
-// Updates are already throttled by the engine's 250ms progress timer — send directly.
-transferEngine.on('update', (items) => {
+// The engine's own 250ms progress timer already throttles steady-state byte
+// progress, but 'update' is also emitted immediately outside that timer (item
+// start/finish, trackOperation's per-batch progress) — and if anything ever
+// causes those immediate emits to fire in a tight loop (a stuck retry, a
+// runaway pump()), each one used to go straight to an IPC send and a fresh
+// getAll()/updateSystemProgress() pass, pegging both processes and the
+// renderer's re-render rate along with them. Coalesce at the IPC boundary as
+// a hard backstop: no matter how fast the engine emits internally, the
+// renderer never receives more than ~10 updates/sec, each carrying the latest
+// state of every item that changed since the last flush.
+const pendingUpdates = new Map<string, import('@shared/types').TransferItem>()
+let updateFlushTimer: ReturnType<typeof setTimeout> | null = null
+const flushUpdates = (): void => {
+  updateFlushTimer = null
+  if (!pendingUpdates.size) return
+  const items = [...pendingUpdates.values()]
+  pendingUpdates.clear()
   sendToRenderer(IPC.evtTransferUpdate, items)
   const all = transferEngine.getAll()
   // Use full queue (not just changed items) so a single-file completion event
   // doesn't incorrectly flip the dock badge to "all done" mid-batch.
   updateSystemProgress(all)
   syncPowerBlocker(all)
+}
+transferEngine.on('update', (items: import('@shared/types').TransferItem[]) => {
+  for (const item of items) pendingUpdates.set(item.id, item)
+  if (updateFlushTimer === null) updateFlushTimer = setTimeout(flushUpdates, 100)
 })
 
 let dockClearTimer: ReturnType<typeof setTimeout> | null = null
@@ -160,7 +179,9 @@ async function createWindow(): Promise<void> {
     })
   }
 
-  // Intercept window close (red X and Cmd+Q both come through here after before-quit sets quitInProgress).
+  // Intercept the red-X close button. Cmd+Q / the app-menu Quit item go through
+  // 'before-quit' first (see below) and never reach here unconfirmed, but this
+  // still runs afterward as part of that same confirmed quit sequence.
   mainWindow.on('close', (e) => {
     if (quitInProgress) return // already confirmed — let it close
     e.preventDefault()
@@ -172,6 +193,50 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // The transfer engine lives entirely in the main process, so a renderer crash
+  // or freeze (e.g. from rendering a huge transfer queue) never stops transfers
+  // in flight — it just leaves the user staring at a dead window. Recover
+  // automatically instead of requiring a manual relaunch.
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    log.error('app', `Renderer process gone (${details.reason}) — reloading window`)
+    if (Notification.isSupported()) {
+      new Notification({
+        title: 'Conduit recovered from a display glitch',
+        body: 'The window reloaded. Any active transfers kept running the whole time.'
+      }).show()
+    }
+    mainWindow?.reload()
+  })
+
+  // NOTE: a blocking confirmation dialog here was tried and reverted — a
+  // dialog.showMessageBox attached to this window is a modal sheet, and it
+  // locks out the ENTIRE window (Cancel All, the transfers drawer, everything)
+  // for as long as it sits unanswered. Worse, this event can fire from nothing
+  // more than a brief render-thread stall — exactly what happens right as a
+  // transfer starts and the panel begins re-rendering — so it was turning a
+  // harmless hiccup into a real lockup. Just log it; the only automatic
+  // recovery action is reserved for an actual crash (render-process-gone, above).
+  mainWindow.webContents.on('unresponsive', () => {
+    log.warn('app', 'Renderer briefly unresponsive (no dialog shown — transfers and the window are unaffected)')
+  })
+  mainWindow.webContents.on('responsive', () => {
+    log.info('app', 'Renderer responsive again — cycling focus to re-sync input routing')
+    // Known Electron/Chromium-on-macOS failure mode: once a webContents has been
+    // flagged unresponsive, the OS-level input routing to its content view can
+    // get stuck even after the process itself recovers and goes fully idle —
+    // native window chrome (dragging, traffic lights) keeps working since
+    // that's handled by AppKit directly, but mouse events bound for the page
+    // stop being delivered, with no error and no CPU usage to show for it.
+    // A blur/focus cycle is the standard workaround (same effect as the user
+    // manually minimizing and restoring the window) — do it automatically so
+    // a brief hang never turns into an unrecoverable dead window.
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.blur()
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus()
+    }, 50)
   })
 
   // Engine event forwarding is wired at module scope (see below createWindow),
@@ -317,8 +382,8 @@ function registerIpc(): void {
     async (_e, args: { connectionId: string; path: string; kind: 'file' | 'directory' }) => {
       const provider = await getProvider(args.connectionId)
       const name = args.path.split('/').filter(Boolean).pop() ?? args.path
-      await transferEngine.trackOperation(`Delete "${name}"`, async () => {
-        await provider.delete(args.path, args.kind)
+      await transferEngine.trackOperation(`Delete "${name}"`, async (onProgress) => {
+        await provider.delete(args.path, args.kind, onProgress)
         log.warn('fs', `Deleted ${args.kind} "${args.path}"`)
       }, `delete:${args.path}`, 'delete')
     }
@@ -422,6 +487,18 @@ function registerIpc(): void {
       for (const srcPath of paths) {
         const name = srcPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? srcPath
         const destPath = provider.join(destDir, name)
+
+        // Dropping a folder onto itself (or one of its own descendants) resolves to
+        // a destination inside the source — e.g. dragging "Foo" onto its own row
+        // makes destDir === srcPath, so destPath becomes "Foo/Foo". The OS rejects
+        // that rename with a bare EINVAL, and since this handler had no validation
+        // or try/catch, that exception was escaping ipcMain.handle uncaught.
+        const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
+        if (norm(destDir) === norm(srcPath) || norm(destDir).startsWith(norm(srcPath) + '/')) {
+          throw new Error(`Can't move "${name}" into itself`)
+        }
+        if (norm(destPath) === norm(srcPath)) continue // already at the destination — no-op
+
         const entry = await provider.stat(srcPath)
 
         if (connType === 'local' || connType === 'smb') {
@@ -965,6 +1042,43 @@ function scheduleSync(): void {
   })()
 }
 
+// ── Application menu ─────────────────────────────────────────────────────────
+// Explicitly registered (rather than relying on Electron's implicit default
+// menu) so Quit — and its Cmd+Q / Ctrl+Q accelerator — reliably routes through
+// promptQuit() instead of whatever fallback quit behavior Electron would
+// otherwise wire up.
+function buildAppMenu(): void {
+  const isMac = process.platform === 'darwin'
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? ([
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { label: 'Quit Conduit', accelerator: 'Cmd+Q', click: () => void promptQuit() }
+            ]
+          }
+        ] as Electron.MenuItemConstructorOptions[])
+      : []),
+    {
+      label: 'File',
+      submenu: isMac
+        ? [{ role: 'close' }]
+        : [{ label: 'Exit', accelerator: 'Ctrl+Q', click: () => void promptQuit() }]
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 // ── System tray ───────────────────────────────────────────────────────────────
 let tray: Tray | null = null
 
@@ -985,12 +1099,7 @@ function buildTrayMenu(): void {
     { type: 'separator' },
     {
       label: 'Quit Conduit',
-      click: () => {
-        quitInProgress = true
-        closeAllProviders()
-        void unmountAll()
-        app.quit()
-      }
+      click: () => void promptQuit()
     }
   ])
   tray.setContextMenu(menu)
@@ -1028,6 +1137,7 @@ app.whenReady().then(async () => {
     // tray is optional — ignore failures
   }
 
+  buildAppMenu()
   registerIpc()
   await createWindow()
 
@@ -1062,6 +1172,26 @@ let quitInProgress = false
 async function promptQuit(): Promise<void> {
   const settings = await getSettings()
   const activeIds = getActiveConnectionIds()
+  const activeTransfers = transferEngine
+    .getAll()
+    .filter((t) => t.status === 'transferring' || t.status === 'queued')
+
+  // Always warn on in-progress transfers, regardless of the "don't ask again"
+  // connections setting — quitting mid-transfer can leave a partial/incomplete
+  // file at the destination, which is a bigger deal than just disconnecting.
+  if (activeTransfers.length > 0) {
+    if (!mainWindow) return
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Quit Conduit',
+      message: `${activeTransfers.length} transfer${activeTransfers.length !== 1 ? 's are' : ' is'} still in progress.`,
+      detail: 'Quitting now will stop them before they finish, and any in-flight file may be left incomplete at the destination.',
+      buttons: ['Cancel', 'Quit Anyway'],
+      defaultId: 0,
+      cancelId: 0
+    })
+    if (response === 0) return // user cancelled
+  }
 
   if (activeIds.length > 0 && !settings.skipQuitConfirm) {
     if (!mainWindow) return
@@ -1088,8 +1218,15 @@ async function promptQuit(): Promise<void> {
   app.quit()
 }
 
-// before-quit fires on Cmd+Q before any windows close — mark confirmed so
-// the window 'close' handler below passes through.
-app.on('before-quit', () => {
-  quitInProgress = true
+// before-quit fires on Cmd+Q and the app-menu Quit item, BEFORE any window's
+// 'close' event — so it's the first (and for Cmd+Q, only) chance to prompt.
+// It used to unconditionally set quitInProgress = true here, which made the
+// window 'close' handler below think quitting had already been confirmed —
+// in reality nothing had asked the user anything, so Cmd+Q silently killed
+// active transfers with no warning. Route through the same promptQuit() the
+// red-X close path uses instead.
+app.on('before-quit', (e) => {
+  if (quitInProgress) return // already confirmed — let it proceed
+  e.preventDefault()
+  void promptQuit()
 })

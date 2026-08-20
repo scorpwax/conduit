@@ -180,6 +180,9 @@ export interface TransferItem {
   operationType?: 'transfer' | 'download' | 'rename' | 'delete'
   bytesTotal: number
   bytesDone: number
+  /** Item-count progress for operations that delete/process discrete items rather than bytes (e.g. a folder delete). */
+  itemsTotal?: number
+  itemsDone?: number
   status: TransferStatus
   error?: string
   /** bytes/sec, updated as it runs. */

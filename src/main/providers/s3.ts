@@ -251,36 +251,51 @@ export class S3Provider implements Provider {
     const key = this.asPrefix(path)
     if (!key) return
     await this.client.send(
-      new PutObjectCommand({ Bucket: this.cfg.bucket, Key: key, Body: '' })
+      new PutObjectCommand({ Bucket: this.cfg.bucket, Key: key, Body: '', ContentLength: 0 })
     )
   }
 
   async createFile(path: string): Promise<void> {
     const key = path.replace(/^\/+/, '')
-    await this.client.send(new PutObjectCommand({ Bucket: this.cfg.bucket, Key: key, Body: '' }))
+    await this.client.send(new PutObjectCommand({ Bucket: this.cfg.bucket, Key: key, Body: '', ContentLength: 0 }))
   }
 
-  async delete(path: string, kind: 'file' | 'directory'): Promise<void> {
+  async delete(
+    path: string,
+    kind: 'file' | 'directory',
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
     const key = path.replace(/^\/+/, '')
     if (kind === 'file') {
       await this.client.send(new DeleteObjectCommand({ Bucket: this.cfg.bucket, Key: key }))
       return
     }
-    // Directory: delete every object under the prefix, in batches of 1000.
+    // Directory: collect every key under the prefix FIRST, then delete in
+    // batches of 1000 — same fix as rename() below. Deleting while still
+    // paginating the listing shifts S3's continuation token and silently
+    // skips objects (the exact bug fixed for rename in v1.24.2).
     const prefix = key.endsWith('/') ? key : key + '/'
+    const allKeys: string[] = []
     let ContinuationToken: string | undefined
     do {
       const res = await this.client.send(
         new ListObjectsV2Command({ Bucket: this.cfg.bucket, Prefix: prefix, ContinuationToken })
       )
-      const objects = (res.Contents ?? []).map((o) => ({ Key: o.Key! }))
-      if (objects.length) {
-        await this.client.send(
-          new DeleteObjectsCommand({ Bucket: this.cfg.bucket, Delete: { Objects: objects } })
-        )
-      }
+      for (const o of res.Contents ?? []) if (o.Key) allKeys.push(o.Key)
       ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined
     } while (ContinuationToken)
+
+    const total = allKeys.length
+    let done = 0
+    onProgress?.(done, total)
+    for (let i = 0; i < allKeys.length; i += 1000) {
+      const batch = allKeys.slice(i, i + 1000).map((Key) => ({ Key }))
+      await this.client.send(
+        new DeleteObjectsCommand({ Bucket: this.cfg.bucket, Delete: { Objects: batch } })
+      )
+      done += batch.length
+      onProgress?.(done, total)
+    }
   }
 
   /** Build a CopySource that keeps path separators but escapes each segment. */

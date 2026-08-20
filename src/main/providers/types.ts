@@ -43,8 +43,13 @@ export interface Provider {
   /** Create an empty file at path (creating parent dirs as needed). */
   createFile(path: string): Promise<void>
 
-  /** Delete a file or directory (recursive for directories). */
-  delete(path: string, kind: 'file' | 'directory'): Promise<void>
+  /**
+   * Delete a file or directory (recursive for directories). Providers that
+   * delete in discrete steps (e.g. S3 batch-deleting objects under a prefix)
+   * should call onProgress(done, total) as they go so the UI can show real
+   * progress instead of an indeterminate spinner.
+   */
+  delete(path: string, kind: 'file' | 'directory', onProgress?: (done: number, total: number) => void): Promise<void>
 
   /** Rename an entry in place to newName (basename only, same directory). */
   rename(path: string, newName: string): Promise<void>

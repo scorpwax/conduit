@@ -118,9 +118,15 @@ export function TransferPanel({
 		active, done, failed, canceled, allFinished,
 		totalBytes, doneBytes, aggSpeed,
 		earliestStart, activeFiles,
-		sorted, hiddenCount, routes, summaryParts
+		sorted, hiddenCount, hiddenActiveCount, routes, summaryParts
 	} = useMemo(() => {
 		const MAX_FINISHED = 100
+		// Large batch jobs (image sequences, multi-track audio sessions) can enqueue
+		// tens of thousands of files. Rendering one DOM row per queued/transferring
+		// item without a cap has taken down the renderer (freeze/OOM → blank window)
+		// while the transfer engine kept running in the main process, unaware the
+		// UI had died. Cap what's actually rendered; the queue itself stays intact.
+		const MAX_ACTIVE_ROWS = 300
 		const active = transfers.filter((t) => t.status === 'transferring' || t.status === 'queued')
 		const done = transfers.filter((t) => t.status === 'done')
 		const failed = transfers.filter((t) => t.status === 'error')
@@ -156,7 +162,18 @@ export function TransferPanel({
 			if (b.status === 'transferring' && a.status !== 'transferring') return 1
 			return (a.startedAt ?? 0) - (b.startedAt ?? 0)
 		})
-		const sorted = [...sortedActive, ...recentFinished]
+		// Always show every in-flight ("transferring") row so nothing actively moving
+		// is hidden; the cap only trims the tail of merely-queued rows.
+		const visibleActive = sortedActive.length > MAX_ACTIVE_ROWS
+			? [
+				...sortedActive.filter((t) => t.status === 'transferring'),
+				...sortedActive.filter((t) => t.status !== 'transferring').slice(
+					0, Math.max(0, MAX_ACTIVE_ROWS - sortedActive.filter((t) => t.status === 'transferring').length)
+				)
+			]
+			: sortedActive
+		const hiddenActiveCount = sortedActive.length - visibleActive.length
+		const sorted = [...visibleActive, ...recentFinished]
 
 		// Build unique "Source → Dest" route labels from finished file transfers.
 		const connName = (id: string): string => {
@@ -188,7 +205,7 @@ export function TransferPanel({
 		if (deleted > 0) summaryParts.push(`${deleted} Deleted`)
 		if (failed.length > 0) summaryParts.push(`${failed.length} Failed`)
 
-		return { active, done, failed, canceled, allFinished, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount, routes, summaryParts }
+		return { active, done, failed, canceled, allFinished, totalBytes, doneBytes, aggSpeed, earliestStart, activeFiles, sorted, hiddenCount, hiddenActiveCount, routes, summaryParts }
 	}, [transfers, connections])
 
 	// Freeze elapsed when complete; reset byte samples when transfers restart.
@@ -282,10 +299,19 @@ export function TransferPanel({
 									? (() => {
 										const transferring = active.filter((t) => t.status === 'transferring')
 										const queued = active.filter((t) => t.status === 'queued')
+										const transferringFiles = transferring.filter((t) => t.kind !== 'operation')
+										const deleting = transferring.filter((t) => t.kind === 'operation' && t.operationType === 'delete')
+										const renaming = transferring.filter((t) => t.kind === 'operation' && t.operationType === 'rename')
+										const otherOps = transferring.filter(
+											(t) => t.kind === 'operation' && t.operationType !== 'delete' && t.operationType !== 'rename'
+										)
 										return [
-											transferring.length > 0 && `${transferring.length} uploading`,
+											transferringFiles.length > 0 && `${transferringFiles.length} transferring`,
+											deleting.length > 0 && `${deleting.length} deleting`,
+											renaming.length > 0 && `${renaming.length} renaming`,
+											otherOps.length > 0 && `${otherOps.length} in progress`,
 											queued.length > 0 && `${queued.length} queued`,
-											`${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}`,
+											totalBytes > 0 ? `${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}` : '',
 											effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
 										].filter(Boolean).join(' · ')
 									})()
@@ -353,6 +379,11 @@ export function TransferPanel({
 								<div className="transfer-empty tp-empty">No active transfers. Drag files between panes to start one.</div>
 							) : (
 								<>
+									{hiddenActiveCount > 0 && (
+										<div className="transfer-hidden-count">
+											+ {hiddenActiveCount.toLocaleString()} more queued (still transferring in the background)
+										</div>
+									)}
 									{sorted.map((t) => {
 										const rowIsWaiting = t.status === 'transferring' && t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal
 										const waitElapsed = rowIsWaiting
@@ -460,6 +491,10 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 	const pct = item.bytesTotal > 0 ? Math.round((item.bytesDone / item.bytesTotal) * 100) : item.status === 'done' ? 100 : 0
 	const isOp = item.kind === 'operation'
 	const isWaiting = waitElapsed !== null
+	// Item-count progress (e.g. objects deleted under a folder) — only some
+	// providers report this; others just show the operation name with no bar.
+	const hasItemProgress = isOp && typeof item.itemsTotal === 'number' && item.itemsTotal > 0
+	const opPct = hasItemProgress ? Math.round(((item.itemsDone ?? 0) / item.itemsTotal!) * 100) : 0
 
 	return (
 		<div className={`transfer-item${isOp ? ' operation' : ''}`}>
@@ -469,8 +504,16 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 			</span>
 			{isOp ? (
 				<>
-					<span className="tmeta">{item.status === 'error' ? (item.error ?? 'Failed') : ''}</span>
-					<span className="tmeta" />
+					<span className="tmeta">
+						{item.status === 'error'
+							? (item.error ?? 'Failed')
+							: hasItemProgress && item.status === 'transferring'
+								? `${(item.itemsDone ?? 0).toLocaleString()} / ${item.itemsTotal!.toLocaleString()} items`
+								: ''}
+					</span>
+					<span className="tmeta">
+						{hasItemProgress && item.status === 'transferring' ? `${opPct}%` : ''}
+					</span>
 				</>
 			) : (
 				<>
@@ -513,6 +556,11 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 			{!isOp && (
 				<div className={`pbar${isWaiting ? ' finalizing' : ''}`}>
 					<span style={isWaiting ? undefined : { width: `${pct}%` }} />
+				</div>
+			)}
+			{hasItemProgress && (
+				<div className="pbar">
+					<span style={{ width: `${opPct}%` }} />
 				</div>
 			)}
 		</div>
