@@ -12,6 +12,12 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.25.1] — 2026-08-22
+
+### Fixed
+- **macOS build failed in CI** — the universal (x64+arm64) build failed because `ssh2`'s optional native crypto accelerator has no prebuilt arm64 binary, and electron-builder's arch-merge safety check correctly flagged the resulting identical x86_64-only copy on both sides as suspicious. `ssh2` falls back to pure-JS crypto automatically when this module can't load, so it's now explicitly marked as an expected shared file.
+- **DMG shipped without the app inside it** — `dmg.contents` had been customized to add a CHANGELOG.md icon but, in doing so, had silently dropped the entry representing the app itself (customizing `contents` replaces electron-builder's default layout entirely rather than extending it). The DMG built and "succeeded" but only contained the background art, the Applications shortcut, and the changelog — no Conduit.app. Restored.
+
 ## [1.25.0] — 2026-08-20
 
 ### Added

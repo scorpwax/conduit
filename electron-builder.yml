@@ -20,6 +20,12 @@ mac:
     - target: dmg
       arch:
         - universal
+  # ssh2's optional native crypto accelerator has no prebuilt arm64 binary, so
+  # the universal build ends up with an identical x86_64-only copy on both
+  # sides. electron-builder's arch-merge safety check flags that as suspicious
+  # unless told it's expected — ssh2 falls back to pure-JS crypto automatically
+  # if this module can't load on a given architecture, so this is safe.
+  x64ArchFiles: "Contents/Resources/app.asar.unpacked/node_modules/ssh2/lib/protocol/crypto/build/Release/sshcrypto.node"
   category: public.app-category.utilities
   icon: build/icon.png
   identity: "MICHAEL ERIC WAX (UMCA2LMNU5)"
@@ -33,14 +39,19 @@ mac:
 dmg:
   artifactName: Conduit-mac_${version}.dmg
   contents:
+    # The app itself — customizing `contents` replaces electron-builder's
+    # default layout entirely, so this entry (unspecified type/path = the
+    # built app) must be explicit or the DMG ships with no app inside it.
     - x: 130
       y: 220
-      type: file
-      path: CHANGELOG.md
     - x: 410
       y: 220
       type: link
       path: /Applications
+    - x: 270
+      y: 370
+      type: file
+      path: CHANGELOG.md
 win:
   target:
     - nsis
