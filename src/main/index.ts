@@ -448,16 +448,22 @@ function registerIpc(): void {
       }
 
       for (const entry of entries) {
-        const dir = provider.parent(entry.path)
-        const newName = await copyName(dir, entry.name)
-        const destPath = provider.join(dir, newName)
-        if (entry.kind === 'file') {
-          const stream = await provider.createReadStream(entry.path)
-          const stat = await provider.stat(entry.path)
-          await provider.writeFile(destPath, stream, stat.size ?? 0)
-        } else {
-          await copyDir(entry.path, destPath)
-        }
+        await transferEngine.trackOperation(`Duplicate "${entry.name}"`, async () => {
+          const dir = provider.parent(entry.path)
+          const newName = await copyName(dir, entry.name)
+          const destPath = provider.join(dir, newName)
+          if (entry.kind === 'file') {
+            const stream = await provider.createReadStream(entry.path)
+            const stat = await provider.stat(entry.path)
+            await provider.writeFile(destPath, stream, stat.size ?? 0)
+          } else {
+            await copyDir(entry.path, destPath)
+          }
+          log.info('fs', `Duplicated "${entry.path}" → "${destPath}"`)
+        }, `duplicate:${entry.path}`, 'duplicate').catch(() => {
+          // One failed duplicate shouldn't abort the rest of the batch — it's
+          // already visible as an errored row in the Transfers panel.
+        })
       }
     }
   )

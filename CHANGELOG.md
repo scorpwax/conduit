@@ -12,6 +12,18 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.26.0] — 2026-08-25
+
+### Added
+- **Connection Speed info modal** — an "i" icon next to Connection Speed in Settings opens a modal explaining what each preset actually controls, the trade-offs per connection type (S3/Wasabi, SFTP, FTP, local/SMB/NAS), and recommended settings for common scenarios
+- **Duplicate now shows progress** — duplicating a file/folder appears in the Transfers panel like every other operation (previously invisible), and the source row shows "name — duplicating…" while it runs
+- **Renaming shows progress** — the source row now shows "name — renaming…" while a rename is in flight, matching the delete/duplicate treatment
+- **Color-coded transfer status** — the "Process Complete" summary line is now green when everything succeeded, yellow when some items completed and some failed, and red when everything failed or was cancelled (previously always the same color regardless of outcome)
+
+### Changed
+- **Renaming now selects the result** — after renaming a file or folder, the newly-renamed item is automatically selected instead of leaving the old selection stale
+- A failed duplicate in a multi-item batch no longer silently aborts the rest of the batch (same fix already applied to delete and move)
+
 ## [1.25.1] — 2026-08-22
 
 ### Fixed

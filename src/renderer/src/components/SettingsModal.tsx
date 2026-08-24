@@ -46,6 +46,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'settings' | 'help'>('settings')
+  const [speedInfoOpen, setSpeedInfoOpen] = useState(false)
 
   useEffect(() => {
     void window.conduit.settings.get().then((s) => {
@@ -99,6 +100,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
     : ''
 
   return (
+    <>
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings-modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-header">
@@ -130,7 +132,16 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
 
             <div className="settings-row">
               <div className="settings-label">
-                <span>Connection Speed</span>
+                <span>
+                  Connection Speed
+                  <button
+                    className="iconbtn settings-info-btn"
+                    title="What does this do?"
+                    onClick={() => setSpeedInfoOpen((v) => !v)}
+                  >
+                    <span className="material-symbols-outlined">info</span>
+                  </button>
+                </span>
                 <span className="settings-hint">Sets how many files transfer simultaneously</span>
               </div>
               <div className="speed-preset-group">
@@ -146,6 +157,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
                 ))}
               </div>
             </div>
+
 
             <div className="settings-row settings-row-indent">
               <div className="settings-label">
@@ -296,6 +308,74 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
           )}
         </div>
       </div>
+    </div>
+
+    {speedInfoOpen && (
+      <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setSpeedInfoOpen(false)}>
+        <div className="modal settings-info-modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <span className="material-symbols-outlined">info</span>
+            <h2>Connection Speed</h2>
+            <button className="iconbtn modal-close" onClick={() => setSpeedInfoOpen(false)}>✕</button>
+          </div>
+          <div className="settings-body">
+            <ConnectionSpeedInfo />
+          </div>
+          <div className="modal-footer">
+            <button className="btn ghost" onClick={() => setSpeedInfoOpen(false)}>Close</button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
+  )
+}
+
+function ConnectionSpeedInfo(): JSX.Element {
+  return (
+    <div className="docs-content">
+      <section className="docs-section">
+        <h3>What each preset does</h3>
+        <p>This isn't a bandwidth throttle — Conduit never slows down an individual file on purpose. It controls <strong>how many files transfer at the same time</strong> out of the queue. A single large file is unaffected by this setting.</p>
+        <table className="docs-table">
+          <thead><tr><th>Preset</th><th>Concurrency</th><th>Label</th></tr></thead>
+          <tbody>
+            <tr><td>Slow</td><td>2</td><td>Cellular / VPN</td></tr>
+            <tr><td>Balanced</td><td>5</td><td>Home broadband</td></tr>
+            <tr><td>Fast</td><td>10</td><td>Office / fiber</td></tr>
+            <tr><td>Custom</td><td>1–20</td><td>Set manually below</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="docs-section">
+        <h3>The trade-off, and why it's different per connection type</h3>
+        <p>The right number depends heavily on what's on the other end:</p>
+        <table className="docs-table">
+          <thead><tr><th>Connection</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>S3 / Wasabi</td><td>Every file over 50MB already splits into 6 parallel part-uploads on its own. So concurrency multiplies: at "Balanced" (5 files) with several large files, that's up to 30 simultaneous HTTPS connections; at "Fast" (10), up to 60 — against a connection pool capped at 75 sockets. Wasabi/S3 is built to take that load well, so cranking this up genuinely helps when you have fiber/office bandwidth to feed it. Past the socket cap you're just adding contention, not speed.</td></tr>
+            <tr><td>SFTP</td><td>All transfers multiplex over one SSH connection. Raising concurrency won't trip a server's "too many connections" limit, but every stream shares the same encrypted channel and CPU-bound cipher overhead. On a slow/high-latency link (VPN, hotel Wi-Fi), more simultaneous streams mostly just contend with each other rather than adding real throughput.</td></tr>
+            <tr><td>FTP</td><td>The opposite of SFTP: FTP can't multiplex, so every concurrent transfer opens its own fresh login connection. Many FTP servers cap connections per user/IP (often 5–20) — push concurrency too high against one of those and you'll start seeing timeouts/refused connections instead of more speed.</td></tr>
+            <tr><td>Local / External / SMB / NAS</td><td>No network, bounded by disk I/O. SSDs handle parallel reads/writes fine or even benefit. Spinning HDDs (some vault drives, NAS shares) can get slower with more parallel streams because the head has to seek between files — "Slow" is often genuinely faster there, not just for weak connections.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="docs-section">
+        <h3>Recommendations</h3>
+        <table className="docs-table">
+          <thead><tr><th>Scenario</th><th>Recommended</th></tr></thead>
+          <tbody>
+            <tr><td>Office fiber → Wasabi (bulk BRAW/R3D/WAV uploads)</td><td>Fast (10), or push Custom to 15 — Wasabi handles it well.</td></tr>
+            <tr><td>Home broadband / hotel Wi-Fi / VPN → Wasabi</td><td>Balanced (5); drop to Slow if you see stalls.</td></tr>
+            <tr><td>SFTP delivery to a client server</td><td>Keep it low, 2–5 — it's one connection regardless, so more parallelism mostly adds contention on a constrained pipe.</td></tr>
+            <tr><td>FTP destination</td><td>Start at Slow (2) and step up carefully; connection-refused errors mid-transfer mean you've hit the server's cap — back off.</td></tr>
+            <tr><td>External HDD / NAS</td><td>2–5. An SSD dock can comfortably run Fast.</td></tr>
+            <tr><td>A few huge single files</td><td>This setting is irrelevant — S3's internal 6-way part parallelism already handles it, other providers are single-stream regardless.</td></tr>
+          </tbody>
+        </table>
+      </section>
     </div>
   )
 }

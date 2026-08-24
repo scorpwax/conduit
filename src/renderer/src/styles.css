@@ -1061,6 +1061,26 @@ select {
     color: var(--text-faint);
 }
 
+.ot-label.status-success {
+    color: var(--success);
+    font-weight: 600;
+}
+
+.ot-label.status-error {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.ot-label.status-partial {
+    color: var(--warn);
+    font-weight: 600;
+}
+
+.ot-label.status-canceled {
+    color: var(--danger);
+    font-weight: 600;
+}
+
 /* Per-connection status dot in the Connection dropdown */
 .conn-menu-dot {
     display: inline-block;
@@ -1945,7 +1965,7 @@ select {
     flex-shrink: 0;
 }
 
-.file-row.deleting {
+.file-row.row-busy {
     opacity: 0.55;
     pointer-events: none;
     cursor: default;
@@ -3581,6 +3601,27 @@ select {
 .settings-hint {
     font-size: 11px;
     color: var(--text-dim);
+}
+
+.settings-info-btn {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    margin-left: 6px;
+    vertical-align: middle;
+    display: inline-grid;
+}
+
+.settings-info-btn .material-symbols-outlined {
+    font-size: 15px;
+}
+
+.settings-info-modal {
+    width: 640px;
+    max-width: 95vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .settings-select {

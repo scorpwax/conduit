@@ -198,10 +198,12 @@ export function TransferPanel({
 		).length
 		const renamed = done.filter((t) => t.kind === 'operation' && t.operationType === 'rename').length
 		const deleted = done.filter((t) => t.kind === 'operation' && t.operationType === 'delete').length
+		const duplicated = done.filter((t) => t.kind === 'operation' && t.operationType === 'duplicate').length
 		const summaryParts: string[] = []
 		if (transferred > 0) summaryParts.push(`${transferred} File${transferred !== 1 ? 's' : ''} Transferred`)
 		if (downloaded > 0) summaryParts.push(`${downloaded} File${downloaded !== 1 ? 's' : ''} Downloaded`)
 		if (renamed > 0) summaryParts.push(`${renamed} Renamed`)
+		if (duplicated > 0) summaryParts.push(`${duplicated} Duplicated`)
 		if (deleted > 0) summaryParts.push(`${deleted} Deleted`)
 		if (failed.length > 0) summaryParts.push(`${failed.length} Failed`)
 
@@ -292,7 +294,19 @@ export function TransferPanel({
 						/>
 					</div>
 					<div className="overall-times">
-						<span className="ot-label">
+						<span
+							className={`ot-label${
+								isWaitingForServer || active.length > 0
+									? ''
+									: canceledAll
+										? ' status-canceled'
+										: failed.length > 0
+											? done.length > 0
+												? ' status-partial' // some completed, some failed
+												: ' status-error' // all failed
+											: ' status-success'
+							}`}
+						>
 							{isWaitingForServer
 								? 'Waiting for server…'
 								: active.length > 0
@@ -302,13 +316,16 @@ export function TransferPanel({
 										const transferringFiles = transferring.filter((t) => t.kind !== 'operation')
 										const deleting = transferring.filter((t) => t.kind === 'operation' && t.operationType === 'delete')
 										const renaming = transferring.filter((t) => t.kind === 'operation' && t.operationType === 'rename')
+										const duplicating = transferring.filter((t) => t.kind === 'operation' && t.operationType === 'duplicate')
 										const otherOps = transferring.filter(
-											(t) => t.kind === 'operation' && t.operationType !== 'delete' && t.operationType !== 'rename'
+											(t) => t.kind === 'operation' &&
+												t.operationType !== 'delete' && t.operationType !== 'rename' && t.operationType !== 'duplicate'
 										)
 										return [
 											transferringFiles.length > 0 && `${transferringFiles.length} transferring`,
 											deleting.length > 0 && `${deleting.length} deleting`,
 											renaming.length > 0 && `${renaming.length} renaming`,
+											duplicating.length > 0 && `${duplicating.length} duplicating`,
 											otherOps.length > 0 && `${otherOps.length} in progress`,
 											queued.length > 0 && `${queued.length} queued`,
 											totalBytes > 0 ? `${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}` : '',
@@ -317,7 +334,9 @@ export function TransferPanel({
 									})()
 									: canceledAll
 										? '✕ Transfers Cancelled'
-										: `✓ Process Complete${summaryParts.length > 0 ? ' · ' + summaryParts.join(' · ') : ''}`
+										: failed.length > 0
+											? `⚠ Process Complete${summaryParts.length > 0 ? ' · ' + summaryParts.join(' · ') : ''}`
+											: `✓ Process Complete${summaryParts.length > 0 ? ' · ' + summaryParts.join(' · ') : ''}`
 							}
 						</span>
 						<span className="ot-pct">{isWaitingForServer ? '' : `${overallPct}%`}</span>

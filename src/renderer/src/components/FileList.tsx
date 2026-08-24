@@ -52,7 +52,35 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
   const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
   const [moveToEntry, setMoveToEntry] = useState<FileEntry[] | null>(null)
-  const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set())
+  // Maps a path to a short verb ("deleting", "renaming", "duplicating") while
+  // that row has an in-flight operation, so the user sees something is
+  // happening instead of the row just silently updating (or not) later.
+  const [busyPaths, setBusyPaths] = useState<Map<string, string>>(new Map())
+
+  // Marks `paths` busy with `verb` immediately, and returns a function to call
+  // per-path once its operation settles. Keeps each row visibly busy for a
+  // minimum stretch even when the underlying operation finishes near-instantly
+  // (e.g. a small local file), so quick operations still register as
+  // something actually happening rather than flashing by unnoticed.
+  const markBusy = useCallback((paths: string[], verb: string): ((path: string) => void) => {
+    const MIN_VISIBLE_MS = 350
+    const startedAt = new Map(paths.map((p) => [p, Date.now()]))
+    setBusyPaths((prev) => {
+      const next = new Map(prev)
+      paths.forEach((p) => next.set(p, verb))
+      return next
+    })
+    return (path: string) => {
+      const elapsed = Date.now() - (startedAt.get(path) ?? 0)
+      setTimeout(() => {
+        setBusyPaths((prev) => {
+          const next = new Map(prev)
+          next.delete(path)
+          return next
+        })
+      }, Math.max(0, MIN_VISIBLE_MS - elapsed))
+    }
+  }, [])
   const [compareEntries, setCompareEntries] = useState<Array<{ entry: FileEntry; connectionId: string }> | null>(null)
 
   const [batchRenameOpen, setBatchRenameOpen] = useState(false)
@@ -381,16 +409,26 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       // 'merge' falls through — rename proceeds (OS/provider handles folder merge)
     }
 
-    await renameEntry(pane.id, entry.path, name)
+    const clearWhenDue = markBusy([entry.path], 'renaming')
+    try {
+      await renameEntry(pane.id, entry.path, name)
+    } finally {
+      clearWhenDue(entry.path)
+    }
   }
 
   async function doDuplicate(entry: FileEntry): Promise<void> {
     if (!pane.connectionId) return
     const targets = pane.selection.includes(entry.path) ? selectedEntries() : [entry]
-    await window.conduit.fs.duplicateEntries(
-      pane.connectionId,
-      targets.map((t) => ({ path: t.path, name: t.name, kind: t.kind }))
-    )
+    const clearWhenDue = markBusy(targets.map((t) => t.path), 'duplicating')
+    try {
+      await window.conduit.fs.duplicateEntries(
+        pane.connectionId,
+        targets.map((t) => ({ path: t.path, name: t.name, kind: t.kind }))
+      )
+    } finally {
+      targets.forEach((t) => clearWhenDue(t.path))
+    }
     await refreshPane(pane.id)
   }
 
@@ -409,26 +447,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     })
     if (!ok) return
 
-    // Keep each row visibly "deleting" for a minimum stretch even when the
-    // underlying operation finishes near-instantly (e.g. a small local file),
-    // so quick deletes still register as something actually happening rather
-    // than the row just vanishing with no feedback.
-    const MIN_VISIBLE_MS = 350
-    const startedAt = new Map(targets.map((t) => [t.path, Date.now()]))
-    const paths = targets.map((t) => t.path)
-    setDeletingPaths((prev) => new Set([...prev, ...paths]))
-
-    const clearWhenDue = (path: string): void => {
-      const elapsed = Date.now() - (startedAt.get(path) ?? 0)
-      setTimeout(() => {
-        setDeletingPaths((prev) => {
-          const next = new Set(prev)
-          next.delete(path)
-          return next
-        })
-      }, Math.max(0, MIN_VISIBLE_MS - elapsed))
-    }
-
+    const clearWhenDue = markBusy(targets.map((t) => t.path), 'deleting')
     await deleteEntries(
       pane.id,
       targets.map((t) => ({ path: t.path, kind: t.kind })),
@@ -872,7 +891,8 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       ) : (
         rows.map(({ entry, depth }, i) => {
           const isDir = entry.kind === 'directory'
-          const isDeleting = deletingPaths.has(entry.path)
+          const busyVerb = busyPaths.get(entry.path)
+          const isBusy = !!busyVerb
           return (
             <div
               key={entry.path}
@@ -882,12 +902,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 selected.has(entry.path) ? 'selected' : '',
                 entry.hidden ? 'hidden' : '',
                 dropDir === entry.path ? 'selected' : '',
-                isDeleting ? 'deleting' : ''
+                busyVerb ? 'row-busy' : ''
               ].join(' ')}
-              draggable={!isDeleting}
-              onClick={(e) => !isDeleting && onRowClick(e, entry, i)}
-              onDoubleClick={() => !isDeleting && onRowDoubleClick(entry)}
-              onContextMenu={(e) => !isDeleting && openContextMenu(e, entry)}
+              draggable={!isBusy}
+              onClick={(e) => !isBusy && onRowClick(e, entry, i)}
+              onDoubleClick={() => !isBusy && onRowDoubleClick(entry)}
+              onContextMenu={(e) => !isBusy && openContextMenu(e, entry)}
               onDragStart={(e) => onDragStart(e, entry)}
               onDragEnd={clearDrag}
               onDragOver={
@@ -923,12 +943,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 ) : (
                   <span className="disclosure spacer">▶</span>
                 )}
-                {isDeleting ? (
+                {isBusy ? (
                   <span className="ficon file-row-spinner" aria-hidden />
                 ) : (
                   <span className="ficon">{fileIcon(entry.name, entry.kind)}</span>
                 )}
-                <span className="label">{entry.name}{isDeleting ? ' — deleting…' : ''}</span>
+                <span className="label">{entry.name}{busyVerb ? ` — ${busyVerb}…` : ''}</span>
               </div>
               <div
                 className="file-size"

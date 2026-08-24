@@ -513,6 +513,12 @@ export const useStore = create<AppState>((set, get) => ({
     if (!pane?.connectionId) return
     await window.conduit.fs.rename(pane.connectionId, path, newName)
     await get().refreshPane(paneId)
+    // Select the renamed entry by its new name (path separators vary by
+    // provider, so look it up in the freshly refreshed listing rather than
+    // trying to reconstruct the new path ourselves).
+    const refreshed = get().panes.find((p) => p.id === paneId)
+    const renamed = refreshed?.result?.entries.find((e) => e.name === newName)
+    if (renamed) get().setSelection(paneId, [renamed.path])
   },
 
   async deleteEntries(paneId, entries, onItemSettled) {

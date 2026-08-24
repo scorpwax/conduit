@@ -177,7 +177,7 @@ export interface TransferItem {
   dest: Endpoint
   kind: 'file' | 'directory' | 'operation'
   /** Classifies operations for the "Process Complete" summary line. */
-  operationType?: 'transfer' | 'download' | 'rename' | 'delete'
+  operationType?: 'transfer' | 'download' | 'rename' | 'delete' | 'duplicate'
   bytesTotal: number
   bytesDone: number
   /** Item-count progress for operations that delete/process discrete items rather than bytes (e.g. a folder delete). */
