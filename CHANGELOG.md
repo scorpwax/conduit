@@ -12,6 +12,17 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.26.1] — 2026-08-26
+
+### Fixed
+- **System notifications silently stopped working** — macOS denies notification authorization to signed-but-unnotarized apps, which this app has always been in CI. Notarization is now fully set up (signing + notarization credentials via GitHub Actions secrets), so released builds are properly notarized and "Conduit"-branded notifications work again. As a safety net, notifications also now fall back to a system-level `osascript` notification if the OS ever denies the native one for any reason.
+
+### Added
+- **Electron/Chromium/Node versions shown in Settings** — an "About" section at the bottom of Settings now shows the exact runtime versions in use, useful for diagnosing environment-specific issues going forward
+
+### Changed
+- Larger text in the Transfers drawer header and overall progress line for readability
+
 ## [1.26.0] — 2026-08-25
 
 ### Added

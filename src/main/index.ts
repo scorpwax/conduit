@@ -2,6 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification, 
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import { execFile } from 'child_process'
 import { IPC } from '@shared/ipc'
 import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, SyncTask, SyncPreviewItem } from '@shared/types'
 import { BUILTIN_LOCAL, BUILTIN_LOCAL_ID } from '@shared/builtin'
@@ -23,6 +24,47 @@ import { FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI, FRAMEIO_PROTOCOL_SCHEME } from './
 import { checkForUpdates } from './updater'
 
 let mainWindow: BrowserWindow | null = null
+
+/** Escape a string for safe interpolation into an AppleScript double-quoted literal. */
+function escapeAppleScriptString(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+/**
+ * Show a system notification, with a fallback for unnotarized builds.
+ *
+ * macOS denies UNUserNotificationCenter authorization to signed-but-unnotarized
+ * Developer ID apps (UNErrorCodeNotificationsNotAllowed) even when the app is
+ * listed as enabled in System Settings — this got stricter on recent macOS
+ * versions. `osascript -e 'display notification'` goes through the already-
+ * trusted System Events instead, so it still works without notarization. It
+ * shows up attributed to Script Editor/System Events rather than Conduit, but
+ * that's a fine tradeoff for "the user actually sees it" until this app is
+ * notarized (see conduit-project memory for the notarization setup plan).
+ */
+function showNotification(title: string, body: string): void {
+  const osascriptFallback = (): void => {
+    const script = `display notification "${escapeAppleScriptString(body)}" with title "${escapeAppleScriptString(title)}"`
+    execFile('osascript', ['-e', script], (err) => {
+      if (err) log.error('app', `osascript notification fallback failed for "${title}": ${err.message}`)
+      else log.info('app', `Notification shown via osascript fallback: "${title}"`)
+    })
+  }
+
+  log.info('app', `showNotification: "${title}" (isSupported=${Notification.isSupported()})`)
+  if (!Notification.isSupported()) {
+    osascriptFallback()
+    return
+  }
+  const n = new Notification({ title, body })
+  n.on('show', () => log.info('app', `Notification shown: "${title}"`))
+  n.on('close', () => log.info('app', `Notification closed: "${title}"`))
+  n.on('failed', (_e, error) => {
+    log.warn('app', `Notification denied by the OS: "${title}" — ${error} — falling back to osascript`)
+    osascriptFallback()
+  })
+  n.show()
+}
 
 // Forward transfer engine events to the renderer. Registered once at module
 // scope so that re-opening the window (macOS dock click) doesn't stack
@@ -201,12 +243,7 @@ async function createWindow(): Promise<void> {
   // automatically instead of requiring a manual relaunch.
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     log.error('app', `Renderer process gone (${details.reason}) — reloading window`)
-    if (Notification.isSupported()) {
-      new Notification({
-        title: 'Conduit recovered from a display glitch',
-        body: 'The window reloaded. Any active transfers kept running the whole time.'
-      }).show()
-    }
+    showNotification('Conduit recovered from a display glitch', 'The window reloaded. Any active transfers kept running the whole time.')
     mainWindow?.reload()
   })
 
@@ -778,6 +815,13 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.appGetVersion, () => app.getVersion())
 
+  ipcMain.handle(IPC.appGetVersions, () => ({
+    app: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node
+  }))
+
   ipcMain.handle(IPC.settingsGet, () => getSettings())
 
   ipcMain.handle(IPC.settingsSet, async (_e, patch: Partial<AppSettings>) => {
@@ -829,9 +873,7 @@ function registerIpc(): void {
   )
 
   ipcMain.handle(IPC.appNotify, (_e, args: { title: string; body: string }) => {
-    if (Notification.isSupported()) {
-      new Notification({ title: args.title, body: args.body }).show()
-    }
+    showNotification(args.title, args.body)
   })
 
   const uiStatePath = (): string => join(app.getPath('userData'), 'conduit-ui-state.json')
@@ -1002,7 +1044,7 @@ async function runScheduledSync(task: SyncTask): Promise<void> {
 
       const title = result === 'success' ? `Sync Complete: ${task.name}` : `Sync Issues: ${task.name}`
       const body = `${stats.copied} copied, ${stats.deleted} deleted${stats.errors > 0 ? `, ${stats.errors} errors` : ''}`
-      if (Notification.isSupported()) new Notification({ title, body }).show()
+      showNotification(title, body)
     } finally {
       syncEngine.removeListener('progress', onProgress)
     }

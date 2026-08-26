@@ -135,6 +135,8 @@ const api = {
   },
   app: {
     getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.appGetVersion),
+    getVersions: (): Promise<{ app: string; electron: string; chrome: string; node: string }> =>
+      ipcRenderer.invoke(IPC.appGetVersions),
     notify: (args: { title: string; body: string }): Promise<void> =>
       ipcRenderer.invoke(IPC.appNotify, args),
     getUiState: (): Promise<UiState | null> => ipcRenderer.invoke(IPC.appGetUiState),

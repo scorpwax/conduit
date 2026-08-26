@@ -58,6 +58,7 @@ export const IPC = {
   settingsSet: 'settings:set',
 
   appGetVersion: 'app:getVersion',
+  appGetVersions: 'app:getVersions',
   appNotify: 'app:notify',
   appGetUiState: 'app:getUiState',
   appSaveUiState: 'app:saveUiState',

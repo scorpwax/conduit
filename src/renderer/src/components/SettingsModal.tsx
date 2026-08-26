@@ -47,6 +47,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'settings' | 'help'>('settings')
   const [speedInfoOpen, setSpeedInfoOpen] = useState(false)
+  const [versions, setVersions] = useState<{ app: string; electron: string; chrome: string; node: string } | null>(null)
 
   useEffect(() => {
     void window.conduit.settings.get().then((s) => {
@@ -54,6 +55,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
       setPreset(detectPreset(s.transferConcurrency ?? 5))
     })
     void window.conduit.sync.getLaunchAtStartup().then(setLaunchAtStartup)
+    void window.conduit.app.getVersions().then(setVersions)
   }, [])
 
   async function pickDownloadDir(): Promise<void> {
@@ -289,6 +291,19 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
                 >
                   <span className="material-symbols-outlined">light_mode</span> Light
                 </button>
+              </div>
+            </div>
+          </section>
+
+          {/* ── About ─────────────────────────────────────────── */}
+          <section className="settings-section">
+            <h3 className="settings-section-title">About</h3>
+            <div className="settings-about">
+              <div>Conduit {versions ? `v${versions.app}` : '…'}</div>
+              <div className="settings-hint">
+                {versions
+                  ? `Electron ${versions.electron} · Chromium ${versions.chrome} · Node ${versions.node}`
+                  : 'Loading version info…'}
               </div>
             </div>
           </section>

@@ -5,3 +5,10 @@ dist/
 .DS_Store
 .vite/
 cyberduck-master/
+
+# Signing/notarization credentials — never commit these (repo is public).
+# These stay local only; CI uses GitHub Actions secrets instead.
+*.p12
+*.p8
+*.cer
+*.mobileprovision
