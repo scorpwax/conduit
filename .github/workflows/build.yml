@@ -30,10 +30,20 @@ jobs:
       - name: Patch Wasabi compat
         run: node scripts/patch-wasabi-compat.js
 
+      # electron-builder auto-notarizes once it finds Apple API key credentials
+      # in the environment — the key itself has to be a file on disk, so write
+      # the secret's contents out first and point APPLE_API_KEY at that path.
+      - name: Write notarization API key
+        run: echo "${{ secrets.APPLE_API_KEY_CONTENT }}" > /tmp/apple_api_key.p8
+
       - name: Build & package (macOS)
         run: npx electron-vite build && npx electron-builder --mac --publish never
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: /tmp/apple_api_key.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
