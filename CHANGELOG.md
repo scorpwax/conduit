@@ -12,6 +12,18 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.27.0] — 2026-08-27
+
+### Added
+- **Adaptive Connection Speed** (Settings → Transfers) — an optional mode that watches for timeouts and connection errors clustering (3+ within 60 seconds) and automatically cuts concurrency below your configured Connection Speed ceiling, easing it back up once the connection is stable for 45+ seconds. Includes an info popup explaining the thresholds, same pattern as the existing Connection Speed info modal.
+- **Low-Bandwidth Warning** (Settings → Transfers) — shows an informational banner in the Transfers panel when throughput stays below a chosen threshold (500 KB/s – 5 MB/s, default 1 MB/s) for 3+ sustained seconds. Purely informational — doesn't pause or throttle anything.
+- **Transfer speed graph** — a live throughput sparkline in the Transfers panel, both aggregate (overall progress strip) and per-file (each transferring row). Click the aggregate sparkline to pop it out into a standalone, resizable window with a smoothed X/Y chart, a 1/5/15-minute range selector, a live current-speed readout, and a live breakdown of every active transfer.
+- Help & Docs now covers all three connection-speed-related settings together in one section.
+
+### Changed
+- The Transfers panel now shows Elapsed and Remaining time together (`Elapsed: 1m 23s • Remaining: ~1h 22m 43s`) instead of only ever showing one or the other — elapsed time is also now shown again once a batch finishes, which had regressed to disappearing entirely.
+- The aggregate speed sparkline uses a smoothed curve instead of a straight-segment polyline.
+
 ## [1.26.2] — 2026-08-27
 
 ### Fixed

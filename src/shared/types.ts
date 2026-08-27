@@ -254,6 +254,12 @@ export interface AppSettings {
   quitAfterTransfer?: boolean
   /** Clear finished transfers from the queue automatically when all transfers complete. */
   clearTransfersAfterComplete?: boolean
+  /** Automatically reduce transfer concurrency when repeated timeouts/connection errors are detected. */
+  adaptiveConnectionSpeed?: boolean
+  /** Show a warning banner in the Transfers panel when throughput drops below the threshold. */
+  lowBandwidthWarning?: boolean
+  /** Throughput threshold (bytes/sec) below which the low-bandwidth warning appears. */
+  lowBandwidthThresholdBps?: number
 }
 
 // ── Sync ─────────────────────────────────────────────────────────────────────

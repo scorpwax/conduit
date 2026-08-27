@@ -100,6 +100,7 @@ const api = {
     cancelAll: (): Promise<void> => ipcRenderer.invoke(IPC.transferCancelAll),
     retry: (id: string): Promise<void> => ipcRenderer.invoke(IPC.transferRetry, id),
     clearFinished: (): Promise<void> => ipcRenderer.invoke(IPC.transferClearFinished),
+    openSpeedGraph: (): Promise<void> => ipcRenderer.invoke(IPC.transferOpenSpeedGraph),
     onUpdate: (cb: (items: TransferItem[]) => void): (() => void) => {
       const listener = (_e: unknown, items: TransferItem[]): void => cb(items)
       ipcRenderer.on(IPC.evtTransferUpdate, listener)

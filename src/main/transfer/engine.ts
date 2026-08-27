@@ -4,6 +4,14 @@ import { getProvider, type Provider } from '../providers'
 import { connectionStore } from '../store'
 import { log } from '../logger'
 
+// Adaptive Connection Speed: back off concurrency when repeated timeout/connection
+// errors happen in a short window, and ease it back up once things are quiet again.
+const ADAPTIVE_ERROR_RE = /timeout|timed out|ETIMEDOUT|ECONNRESET|ECONNABORTED|EPIPE|EHOSTUNREACH|socket hang up|network/i
+const ADAPTIVE_WINDOW_MS = 60_000
+const ADAPTIVE_FAILURE_THRESHOLD = 3
+const ADAPTIVE_RECOVERY_COOLDOWN_MS = 45_000
+const ADAPTIVE_RECOVERY_STEP_MS = 20_000
+
 function fmtBytes(bytes: number): string {
   if (!bytes || bytes < 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -35,9 +43,72 @@ class TransferEngine extends EventEmitter {
   private seq = 0
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
+  // Adaptive Connection Speed state. `baseConcurrency` is the user's configured
+  // ceiling; `concurrency` (above) is the effective value the queue actually runs
+  // at, which adaptive mode may temporarily reduce below the ceiling.
+  private adaptiveEnabled = false
+  private baseConcurrency = 5
+  private backedOff = false
+  private failureWindow: number[] = []
+  private lastBackoffAt = 0
+  private lastRecoveryStepAt = 0
+
   /** Update the max simultaneous transfers at runtime (persisted by caller). */
   setConcurrency(n: number): void {
-    this.concurrency = Math.max(1, Math.min(20, n))
+    this.baseConcurrency = Math.max(1, Math.min(20, n))
+    if (!this.backedOff) this.concurrency = this.baseConcurrency
+    this.pump()
+  }
+
+  /** Enable/disable Adaptive Connection Speed (persisted by caller). */
+  setAdaptive(enabled: boolean): void {
+    this.adaptiveEnabled = enabled
+    if (!enabled) {
+      this.backedOff = false
+      this.failureWindow = []
+      this.concurrency = this.baseConcurrency
+      this.pump()
+    }
+  }
+
+  /** Record a transfer failure; backs off concurrency if timeouts/connection errors cluster. */
+  private recordAdaptiveFailure(message: string | undefined): void {
+    if (!this.adaptiveEnabled || !message || !ADAPTIVE_ERROR_RE.test(message)) return
+    const now = Date.now()
+    this.failureWindow = [...this.failureWindow, now].filter((t) => t > now - ADAPTIVE_WINDOW_MS)
+    if (this.failureWindow.length < ADAPTIVE_FAILURE_THRESHOLD || this.concurrency <= 1) return
+
+    const prev = this.concurrency
+    this.concurrency = Math.max(1, Math.ceil(this.concurrency / 2))
+    this.backedOff = true
+    this.lastBackoffAt = now
+    this.lastRecoveryStepAt = now
+    this.failureWindow = []
+    if (this.concurrency !== prev) {
+      log.warn(
+        'connection',
+        `Adaptive Connection Speed: reduced concurrency from ${prev} to ${this.concurrency} after repeated timeouts/connection errors`
+      )
+      this.pump()
+    }
+  }
+
+  /** Step concurrency back up toward the base ceiling once errors have quieted down. */
+  private maybeAdaptiveRecover(): void {
+    if (!this.adaptiveEnabled || !this.backedOff) return
+    const now = Date.now()
+    if (now - this.lastBackoffAt < ADAPTIVE_RECOVERY_COOLDOWN_MS) return
+    if (now - this.lastRecoveryStepAt < ADAPTIVE_RECOVERY_STEP_MS) return
+    if (this.failureWindow.length > 0) return
+
+    this.lastRecoveryStepAt = now
+    this.concurrency = Math.min(this.baseConcurrency, this.concurrency + 1)
+    if (this.concurrency >= this.baseConcurrency) {
+      this.backedOff = false
+      log.info('connection', `Adaptive Connection Speed: connection stable, restored concurrency to ${this.concurrency}`)
+    } else {
+      log.info('connection', `Adaptive Connection Speed: connection stable, increasing concurrency to ${this.concurrency}`)
+    }
     this.pump()
   }
 
@@ -52,6 +123,7 @@ class TransferEngine extends EventEmitter {
         this.stopProgressTimer()
         return
       }
+      this.maybeAdaptiveRecover()
       this.emit('update', active)
     }, 250)
   }
@@ -473,6 +545,7 @@ class TransferEngine extends EventEmitter {
       } else {
         item.status = 'error'
         item.error = (err as Error).message
+        this.recordAdaptiveFailure(item.error)
         const [srcName, dstName] = await Promise.all([
           this.resolveConnName(item.source.connectionId),
           this.resolveConnName(item.dest.connectionId)

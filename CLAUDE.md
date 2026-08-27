@@ -154,6 +154,10 @@ Use `window.conduit.platform === 'darwin'` to guard macOS-only items.
 Bump `version` in `package.json` and add an entry to `CHANGELOG.md` on every change.
 Follow semver: patch for fixes, minor for new features.
 
+When a change ships something tracked in `ROADMAP.md`, mark that bullet done instead
+of deleting it: prefix it with `COMPLETE vX.Y.Z – ` (the version it shipped in), right
+before the bolded item name.
+
 ---
 
 ## Building

@@ -7,7 +7,10 @@ import type { AppSettings } from '@shared/types'
 
 const DEFAULTS: AppSettings = {
   logRetentionDays: 180,
-  transferConcurrency: 5
+  transferConcurrency: 5,
+  adaptiveConnectionSpeed: false,
+  lowBandwidthWarning: true,
+  lowBandwidthThresholdBps: 1_000_000
 }
 
 let cache: AppSettings | null = null

@@ -24,6 +24,7 @@ export function TransferPanel({
 }: TransferPanelProps): JSX.Element {
 	const transfers = useStore((s) => s.transfers)
 	const connections = useStore((s) => s.connections)
+	const settings = useStore((s) => s.settings)
 	const setTransfers = useStore((s) => s.setTransfers)
 	const clearFinished = useStore((s) => s.clearFinishedTransfers)
 	const cancelTransfer = useStore((s) => s.cancelTransfer)
@@ -65,6 +66,10 @@ export function TransferPanel({
 	const byteSamplesRef = useRef<Array<[number, number]>>([])
 	const doneBytesRef = useRef(0)
 	const activeCountRef = useRef(0)
+	// Rolling aggregate-speed history for the sparkline in the overall progress strip.
+	const speedHistoryRef = useRef<number[]>([])
+	// Timestamp when throughput first dropped below the low-bandwidth threshold, or null.
+	const lowBandwidthSinceRef = useRef<number | null>(null)
 	useEffect(() => {
 		const id = setInterval(() => setNow(Date.now()), 250)
 		return () => clearInterval(id)
@@ -217,6 +222,8 @@ export function TransferPanel({
 		} else {
 			frozenAtRef.current = null
 			byteSamplesRef.current = []
+			speedHistoryRef.current = []
+			lowBandwidthSinceRef.current = null
 		}
 	}, [allFinished])
 
@@ -256,6 +263,32 @@ export function TransferPanel({
 	// waiting for the server's HTTP 200 confirmation (common for large files).
 	const isWaitingForServer =
 		activeFiles.length > 0 && activeFiles.every((t) => t.bytesDone >= t.bytesTotal)
+
+	// Sample aggregate speed once per tick for the overall-progress sparkline.
+	useEffect(() => {
+		if (active.length === 0) return
+		const arr = speedHistoryRef.current
+		arr.push(effectiveSpeed)
+		const MAX_SPARKLINE_POINTS = 60
+		if (arr.length > MAX_SPARKLINE_POINTS) arr.splice(0, arr.length - MAX_SPARKLINE_POINTS)
+	}, [now]) // eslint-disable-line react-hooks/exhaustive-deps
+
+	// Low-bandwidth warning: require the drop to be sustained for a few seconds
+	// (past the initial ramp-up) before flagging it, so a brief dip doesn't flicker the banner.
+	const LOW_BANDWIDTH_MIN_ELAPSED_MS = 3000
+	const LOW_BANDWIDTH_SUSTAIN_MS = 3000
+	useEffect(() => {
+		const warnEnabled = settings?.lowBandwidthWarning ?? true
+		const threshold = settings?.lowBandwidthThresholdBps ?? 1_000_000
+		if (!warnEnabled || active.length === 0 || elapsed < LOW_BANDWIDTH_MIN_ELAPSED_MS || effectiveSpeed <= 0 || effectiveSpeed >= threshold) {
+			lowBandwidthSinceRef.current = null
+			return
+		}
+		if (lowBandwidthSinceRef.current === null) lowBandwidthSinceRef.current = Date.now()
+	}, [now]) // eslint-disable-line react-hooks/exhaustive-deps
+
+	const showLowBandwidth =
+		lowBandwidthSinceRef.current !== null && now - lowBandwidthSinceRef.current > LOW_BANDWIDTH_SUSTAIN_MS
 
 	function toggleTransfers(): void {
 		const next = !transfersCollapsed
@@ -330,22 +363,37 @@ export function TransferPanel({
 											queued.length > 0 && `${queued.length} queued`,
 											totalBytes > 0 ? `${formatBytes(doneBytes)} / ${formatBytes(totalBytes)}` : '',
 											effectiveSpeed > 0 ? formatSpeed(effectiveSpeed) : ''
-										].filter(Boolean).join(' · ')
+										].filter(Boolean).join(' • ')
 									})()
 									: canceledAll
 										? '✕ Transfers Cancelled'
 										: failed.length > 0
-											? `⚠ Process Complete${summaryParts.length > 0 ? ' · ' + summaryParts.join(' · ') : ''}`
-											: `✓ Process Complete${summaryParts.length > 0 ? ' · ' + summaryParts.join(' · ') : ''}`
+											? `⚠ Process Complete${summaryParts.length > 0 ? ' • ' + summaryParts.join(' • ') : ''}`
+											: `✓ Process Complete${summaryParts.length > 0 ? ' • ' + summaryParts.join(' • ') : ''}`
 							}
 						</span>
 						<span className="ot-pct">{isWaitingForServer ? '' : `${overallPct}%`}</span>
 						<span className="ot-label">
-							{!isWaitingForServer && remaining !== null && remaining > 1
-								? `~${formatDuration(remaining * 1000)} left`
-								: active.length > 0 ? `Elapsed: ${formatDuration(elapsed)}` : ''}
+							{elapsed > 0
+								? [
+									`Elapsed: ${formatDuration(elapsed)}`,
+									active.length > 0 && !isWaitingForServer && remaining !== null && remaining > 1
+										? `Remaining: ~${formatDuration(remaining * 1000)}`
+										: ''
+								].filter(Boolean).join(' • ')
+								: ''}
 						</span>
 					</div>
+					{active.length > 0 && speedHistoryRef.current.length > 1 && (
+						<button
+							className="agg-sparkline-btn"
+							title="Open detailed speed graph in a new window"
+							onClick={() => void window.conduit.transfer.openSpeedGraph()}
+						>
+							<Sparkline points={speedHistoryRef.current} height={22} className="agg-sparkline" />
+							<span className="material-symbols-outlined agg-sparkline-icon">open_in_new</span>
+						</button>
+					)}
 				</div>
 			)}
 
@@ -391,6 +439,12 @@ export function TransferPanel({
 							<div className="transfer-offline-banner">
 								<span className="transfer-offline-icon">⚠</span>
 								<span>Connection lost — transfers paused and will resume when you're reconnected.</span>
+							</div>
+						)}
+						{!isOffline && showLowBandwidth && (
+							<div className="transfer-lowbw-banner">
+								<span className="transfer-offline-icon">⚠</span>
+								<span>Your bandwidth is low ({formatSpeed(effectiveSpeed)}) — transfer speeds will be affected.</span>
 							</div>
 						)}
 						<div className="transfer-list">
@@ -515,6 +569,22 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 	const hasItemProgress = isOp && typeof item.itemsTotal === 'number' && item.itemsTotal > 0
 	const opPct = hasItemProgress ? Math.round(((item.itemsDone ?? 0) / item.itemsTotal!) * 100) : 0
 
+	// Per-file speed history for the row's mini sparkline (reset once the file leaves "transferring").
+	const rowSpeedHistoryRef = useRef<number[]>([])
+	useEffect(() => {
+		if (item.status !== 'transferring' || isOp) {
+			rowSpeedHistoryRef.current = []
+			return
+		}
+		const v = item.speed ?? fallbackSpeed
+		if (v > 0) {
+			const arr = rowSpeedHistoryRef.current
+			arr.push(v)
+			const MAX_ROW_SPARKLINE_POINTS = 40
+			if (arr.length > MAX_ROW_SPARKLINE_POINTS) arr.splice(0, arr.length - MAX_ROW_SPARKLINE_POINTS)
+		}
+	}, [item.status, item.speed, fallbackSpeed, isOp])
+
 	return (
 		<div className={`transfer-item${isOp ? ' operation' : ''}`}>
 			<span className={`tstatus ${item.status}`}>{statusGlyph(item.status)}</span>
@@ -554,6 +624,9 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 								? '—'
 								: `${pct}%`}
 					</span>
+					{item.status === 'transferring' && !isWaiting && rowSpeedHistoryRef.current.length > 1 && (
+						<Sparkline points={rowSpeedHistoryRef.current} height={14} className="row-sparkline" />
+					)}
 				</>
 			)}
 			{item.status === 'error' && !isOp && (
@@ -672,4 +745,41 @@ function formatDuration(ms: number): string {
 	if (h > 0) return `${h}h ${m % 60}m`
 	if (m > 0) return `${m}m ${s % 60}s`
 	return `${s}s`
+}
+
+/** Minimal throughput sparkline. Uses a fixed viewBox and `preserveAspectRatio="none"`
+ *  so CSS controls the actual rendered size — same points array works for the wide
+ *  overall-progress strip and the small per-row version. */
+function Sparkline({ points, height, className }: { points: number[]; height: number; className: string }): JSX.Element | null {
+	if (points.length < 2) return null
+	const VB_WIDTH = 100
+	const max = Math.max(...points, 1)
+	const stepX = VB_WIDTH / (points.length - 1)
+	const coords = points.map((v, i): [number, number] => [i * stepX, height - (v / max) * height])
+	const line = catmullRomPath(coords)
+	const area = `${line} L${VB_WIDTH},${height} L0,${height} Z`
+	return (
+		<svg className={`speed-sparkline ${className}`} viewBox={`0 0 ${VB_WIDTH} ${height}`} preserveAspectRatio="none">
+			<path d={area} className="speed-sparkline-area" />
+			<path d={line} className="speed-sparkline-line" />
+		</svg>
+	)
+}
+
+/** Catmull-Rom → cubic Bezier smoothing so the sparkline reads as a fluid curve
+ *  rather than a jagged polyline between samples. */
+function catmullRomPath(points: Array<[number, number]>): string {
+	let d = `M${points[0][0].toFixed(2)},${points[0][1].toFixed(2)}`
+	for (let i = 0; i < points.length - 1; i++) {
+		const p0 = points[i - 1] ?? points[i]
+		const p1 = points[i]
+		const p2 = points[i + 1]
+		const p3 = points[i + 2] ?? p2
+		const c1x = p1[0] + (p2[0] - p0[0]) / 6
+		const c1y = p1[1] + (p2[1] - p0[1]) / 6
+		const c2x = p2[0] - (p3[0] - p1[0]) / 6
+		const c2y = p2[1] - (p3[1] - p1[1]) / 6
+		d += ` C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)}`
+	}
+	return d
 }

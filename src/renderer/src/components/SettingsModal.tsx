@@ -38,15 +38,25 @@ function detectPreset(concurrency: number): SpeedPreset {
   return 'custom'
 }
 
+const LOW_BANDWIDTH_THRESHOLDS = [
+  { bps: 500_000,   label: '500 KB/s' },
+  { bps: 1_000_000, label: '1 MB/s — Default' },
+  { bps: 2_000_000, label: '2 MB/s' },
+  { bps: 5_000_000, label: '5 MB/s' },
+]
+
 export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onToggleHidden }: Props): JSX.Element {
   const theme = useStore((s) => s.theme)
   const toggleTheme = useStore((s) => s.toggleTheme)
+  const applySettings = useStore((s) => s.applySettings)
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [preset, setPreset] = useState<SpeedPreset>('balanced')
   const [launchAtStartup, setLaunchAtStartup] = useState(false)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'settings' | 'help'>('settings')
   const [speedInfoOpen, setSpeedInfoOpen] = useState(false)
+  const [adaptiveInfoOpen, setAdaptiveInfoOpen] = useState(false)
+  const [lowBandwidthInfoOpen, setLowBandwidthInfoOpen] = useState(false)
   const [versions, setVersions] = useState<{ app: string; electron: string; chrome: string; node: string } | null>(null)
 
   useEffect(() => {
@@ -84,7 +94,8 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
   async function save(): Promise<void> {
     if (!settings) return
     setSaving(true)
-    await window.conduit.settings.set(settings)
+    const saved = await window.conduit.settings.set(settings)
+    applySettings(saved)
     await window.conduit.sync.setLaunchAtStartup(launchAtStartup)
     setSaving(false)
     onClose()
@@ -161,6 +172,30 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
             </div>
 
 
+            <div className="settings-row">
+              <div className="settings-label">
+                <span>
+                  Adaptive
+                  <button
+                    className="iconbtn settings-info-btn"
+                    title="What does this do?"
+                    onClick={() => setAdaptiveInfoOpen((v) => !v)}
+                  >
+                    <span className="material-symbols-outlined">info</span>
+                  </button>
+                </span>
+                <span className="settings-hint">Automatically reduce concurrency if timeouts/connection errors start clustering, and ease it back up once the connection is stable</span>
+              </div>
+              <label className="st-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.adaptiveConnectionSpeed ?? false}
+                  onChange={(e) => setSettings({ ...settings, adaptiveConnectionSpeed: e.target.checked })}
+                />
+                <span className="st-toggle-slider" />
+              </label>
+            </div>
+
             <div className="settings-row settings-row-indent">
               <div className="settings-label">
                 <span>Concurrent Transfers</span>
@@ -210,6 +245,48 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
                 <span className="st-toggle-slider" />
               </label>
             </div>
+
+            <div className="settings-row">
+              <div className="settings-label">
+                <span>
+                  Low-Bandwidth Warning
+                  <button
+                    className="iconbtn settings-info-btn"
+                    title="What does this do?"
+                    onClick={() => setLowBandwidthInfoOpen((v) => !v)}
+                  >
+                    <span className="material-symbols-outlined">info</span>
+                  </button>
+                </span>
+                <span className="settings-hint">Show a banner in the Transfers panel when throughput drops below the threshold</span>
+              </div>
+              <label className="st-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.lowBandwidthWarning ?? true}
+                  onChange={(e) => setSettings({ ...settings, lowBandwidthWarning: e.target.checked })}
+                />
+                <span className="st-toggle-slider" />
+              </label>
+            </div>
+
+            {(settings.lowBandwidthWarning ?? true) && (
+              <div className="settings-row settings-row-indent">
+                <div className="settings-label">
+                  <span>Warn Below</span>
+                  <span className="settings-hint">Minimum sustained speed before the warning appears</span>
+                </div>
+                <select
+                  className="input settings-select"
+                  value={settings.lowBandwidthThresholdBps ?? 1_000_000}
+                  onChange={(e) => setSettings({ ...settings, lowBandwidthThresholdBps: Number(e.target.value) })}
+                >
+                  {LOW_BANDWIDTH_THRESHOLDS.map(({ bps, label }) => (
+                    <option key={bps} value={bps}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </section>
 
           {/* ── General ───────────────────────────────────────── */}
@@ -342,6 +419,42 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
         </div>
       </div>
     )}
+
+    {adaptiveInfoOpen && (
+      <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setAdaptiveInfoOpen(false)}>
+        <div className="modal settings-info-modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <span className="material-symbols-outlined">info</span>
+            <h2>Adaptive Connection Speed</h2>
+            <button className="iconbtn modal-close" onClick={() => setAdaptiveInfoOpen(false)}>✕</button>
+          </div>
+          <div className="settings-body">
+            <AdaptiveInfo />
+          </div>
+          <div className="modal-footer">
+            <button className="btn ghost" onClick={() => setAdaptiveInfoOpen(false)}>Close</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {lowBandwidthInfoOpen && (
+      <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setLowBandwidthInfoOpen(false)}>
+        <div className="modal settings-info-modal" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <span className="material-symbols-outlined">info</span>
+            <h2>Low-Bandwidth Warning</h2>
+            <button className="iconbtn modal-close" onClick={() => setLowBandwidthInfoOpen(false)}>✕</button>
+          </div>
+          <div className="settings-body">
+            <LowBandwidthInfo />
+          </div>
+          <div className="modal-footer">
+            <button className="btn ghost" onClick={() => setLowBandwidthInfoOpen(false)}>Close</button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   )
 }
@@ -395,6 +508,62 @@ function ConnectionSpeedInfo(): JSX.Element {
   )
 }
 
+function AdaptiveInfo(): JSX.Element {
+  return (
+    <div className="docs-content">
+      <section className="docs-section">
+        <h3>What it does</h3>
+        <p>Connection Speed sets a fixed ceiling on how many files transfer at once. Adaptive adds a layer on top: it watches for timeouts and connection errors (dropped SFTP/FTP connections, stalled S3/Wasabi requests, etc.) and automatically pulls concurrency below that ceiling when they start clustering — then eases it back up once the connection settles down. It never raises concurrency above whatever you've set in Connection Speed, only below it.</p>
+      </section>
+
+      <section className="docs-section">
+        <h3>How it decides</h3>
+        <table className="docs-table">
+          <thead><tr><th>Trigger</th><th>Response</th></tr></thead>
+          <tbody>
+            <tr><td>3 or more timeout/connection errors within 60 seconds</td><td>Concurrency is cut roughly in half (never below 1) and logged to the Activity Log under "Connection"</td></tr>
+            <tr><td>45 seconds pass with no further errors</td><td>Concurrency starts stepping back up by 1 every 20 seconds</td></tr>
+            <tr><td>Fully recovered</td><td>Concurrency returns to your configured Connection Speed ceiling</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="docs-section">
+        <h3>When to use it</h3>
+        <p>Best left on for flaky connections — hotel Wi-Fi, VPNs, cellular tethering, or any SFTP/FTP server that occasionally drops connections under load. On a stable office/fiber connection it should rarely (if ever) kick in, so there's little downside to leaving it enabled.</p>
+      </section>
+    </div>
+  )
+}
+
+function LowBandwidthInfo(): JSX.Element {
+  return (
+    <div className="docs-content">
+      <section className="docs-section">
+        <h3>What it does</h3>
+        <p>Shows a warning banner in the Transfers panel when throughput drops and stays below the threshold you set — it doesn't pause, throttle, or otherwise change the transfer, it's purely informational so you know a slowdown is the connection and not Conduit stalling.</p>
+      </section>
+
+      <section className="docs-section">
+        <h3>How it decides</h3>
+        <p>The banner only appears once combined transfer speed has been below the threshold continuously for 3 seconds (and at least 3 seconds into the transfer), so a brief dip or the normal startup ramp-up won't flicker it on and off.</p>
+      </section>
+
+      <section className="docs-section">
+        <h3>Picking a threshold</h3>
+        <table className="docs-table">
+          <thead><tr><th>Threshold</th><th>Good for</th></tr></thead>
+          <tbody>
+            <tr><td>500 KB/s</td><td>Only warn on a genuinely poor connection (cellular, congested hotel Wi-Fi)</td></tr>
+            <tr><td>1 MB/s (default)</td><td>General-purpose — flags most connections too slow for comfortable large-media transfer</td></tr>
+            <tr><td>2–5 MB/s</td><td>Office/fiber connections, where you want a heads-up if you drop well below your usual speed</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  )
+}
+
 function DocsContent(): JSX.Element {
   return (
     <div className="docs-content">
@@ -433,6 +602,20 @@ function DocsContent(): JSX.Element {
           <li><strong>Conflicts</strong> — if a file already exists at the destination, Conduit will ask before overwriting.</li>
           <li>Progress, speed, and estimated time are shown in the Transfers panel at the bottom.</li>
         </ul>
+      </section>
+
+      <section className="docs-section">
+        <h3>Connection Speed Settings</h3>
+        <p>Three related options in Settings → Transfers tune how Conduit handles bandwidth. See each setting's (i) button for full detail — summarized here:</p>
+        <table className="docs-table">
+          <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td>Connection Speed</td><td>Fixed ceiling on how many files transfer at once (Slow/Balanced/Fast/Custom).</td></tr>
+            <tr><td>Adaptive</td><td>Automatically pulls concurrency below that ceiling when timeouts/connection errors cluster (3+ in 60s), then eases it back up after 45s of stability.</td></tr>
+            <tr><td>Low-Bandwidth Warning</td><td>Shows an informational banner in the Transfers panel when throughput stays below a chosen threshold (default 1 MB/s) for 3+ seconds. Doesn't pause or throttle anything.</td></tr>
+          </tbody>
+        </table>
+        <p>The Transfers panel also shows a live speed sparkline once a transfer is running — click it to pop out a detailed, resizable speed graph in its own window.</p>
       </section>
 
       <section className="docs-section">

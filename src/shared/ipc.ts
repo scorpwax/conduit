@@ -30,6 +30,7 @@ export const IPC = {
   transferCancel: 'transfer:cancel',
   transferCancelAll: 'transfer:cancelAll',
   transferClearFinished: 'transfer:clearFinished',
+  transferOpenSpeedGraph: 'transfer:openSpeedGraph',
 
   fsFolderSize: 'fs:folderSize',
   fsChecksum: 'fs:checksum',

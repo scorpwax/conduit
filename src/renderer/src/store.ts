@@ -8,6 +8,7 @@ let removeUpdateListener: (() => void) | null = null
 // don't re-refresh on every subsequent update event for the same item.
 const seenDoneIds = new Set<string>()
 import type {
+  AppSettings,
   Connection,
   ConnectionType,
   DriveInfo,
@@ -50,6 +51,9 @@ interface AppState {
   drives: DriveInfo[]
   panes: PaneState[]
   transfers: TransferItem[]
+  /** Cached copy of persisted app settings, refreshed whenever Settings is saved. */
+  settings: AppSettings | null
+  applySettings: (settings: AppSettings) => void
   conflict: ConflictPrompt | null
   bookmarks: Bookmark[]
   /** In-app clipboard for copy/paste of files & folders. */
@@ -153,6 +157,7 @@ export const useStore = create<AppState>((set, get) => ({
   drives: [],
   panes: [newPane(), newPane()],
   transfers: [],
+  settings: null,
   conflict: null,
   bookmarks: [],
   clipboard: null,
@@ -167,13 +172,14 @@ export const useStore = create<AppState>((set, get) => ({
   syncQueue: [],
 
   async init() {
-    const [connections, drives, transfers, bookmarks] = await Promise.all([
+    const [connections, drives, transfers, bookmarks, settings] = await Promise.all([
       window.conduit.connections.getAll(),
       window.conduit.fs.drives(),
       window.conduit.transfer.getAll(),
-      window.conduit.bookmarks.getAll()
+      window.conduit.bookmarks.getAll(),
+      window.conduit.settings.get()
     ])
-    set({ connections, drives, transfers, bookmarks })
+    set({ connections, drives, transfers, bookmarks, settings })
 
     // Remove any listeners left over from a previous init() call (e.g. React
     // StrictMode double-invoke, or future window remounts) before registering new ones.
@@ -220,6 +226,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   async reloadConnections() {
     set({ connections: await window.conduit.connections.getAll() })
+  },
+
+  applySettings(settings) {
+    set({ settings })
   },
 
   addPane() {

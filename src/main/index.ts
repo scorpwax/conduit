@@ -24,6 +24,7 @@ import { FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI, FRAMEIO_PROTOCOL_SCHEME } from './
 import { checkForUpdates } from './updater'
 
 let mainWindow: BrowserWindow | null = null
+let speedGraphWindow: BrowserWindow | null = null
 
 /** Escape a string for safe interpolation into an AppleScript double-quoted literal. */
 function escapeAppleScriptString(s: string): string {
@@ -69,12 +70,16 @@ function showNotification(title: string, body: string): void {
 // Forward transfer engine events to the renderer. Registered once at module
 // scope so that re-opening the window (macOS dock click) doesn't stack
 // duplicate listeners, which would send each event multiple times.
+// Broadcasts to every open app window (main + the speed graph pop-out, if
+// open) — a window with no listener for a given channel just ignores it.
 const sendToRenderer = (channel: string, payload: unknown): void => {
-  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-    try {
-      mainWindow.webContents.send(channel, payload)
-    } catch {
-      // Render frame disposed mid-navigation — drop the message safely.
+  for (const w of [mainWindow, speedGraphWindow]) {
+    if (w && !w.isDestroyed() && !w.webContents.isDestroyed()) {
+      try {
+        w.webContents.send(channel, payload)
+      } catch {
+        // Render frame disposed mid-navigation — drop the message safely.
+      }
     }
   }
 }
@@ -230,6 +235,13 @@ async function createWindow(): Promise<void> {
     void promptQuit()
   })
 
+  // The speed graph pop-out only makes sense alongside the main window's data —
+  // close it along with the main window rather than leaving it orphaned.
+  mainWindow.on('closed', () => {
+    if (speedGraphWindow && !speedGraphWindow.isDestroyed()) speedGraphWindow.close()
+    speedGraphWindow = null
+  })
+
   logger.setWindow(mainWindow)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -283,6 +295,43 @@ async function createWindow(): Promise<void> {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
+/** Open the standalone transfer-speed graph window, or focus it if already open. */
+function openSpeedGraphWindow(): void {
+  if (speedGraphWindow && !speedGraphWindow.isDestroyed()) {
+    speedGraphWindow.focus()
+    return
+  }
+
+  speedGraphWindow = new BrowserWindow({
+    width: 560,
+    height: 420,
+    minWidth: 420,
+    minHeight: 300,
+    title: 'Conduit — Transfer Speed',
+    backgroundColor: '#0f1115',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.mjs'),
+      sandbox: false,
+      contextIsolation: true
+    }
+  })
+
+  speedGraphWindow.on('ready-to-show', () => speedGraphWindow?.show())
+  speedGraphWindow.on('closed', () => { speedGraphWindow = null })
+  speedGraphWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  // Same renderer bundle as the main window, routed to a different top-level
+  // component via the URL hash — see renderer/src/main.tsx.
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    speedGraphWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#speed-graph`)
+  } else {
+    speedGraphWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'speed-graph' })
   }
 }
 
@@ -585,6 +634,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.transferCancelAll, () => transferEngine.cancelAll())
   ipcMain.handle(IPC.transferClearFinished, () => transferEngine.clearFinished())
   ipcMain.handle(IPC.transferRetry, (_e, id: string) => transferEngine.retry(id))
+  ipcMain.handle(IPC.transferOpenSpeedGraph, () => openSpeedGraphWindow())
 
   // Drag local files out to the OS (Finder, Desktop, etc.).
   // Must use ipcMain.on (not handle) so startDrag fires synchronously during the drag event.
@@ -828,6 +878,7 @@ function registerIpc(): void {
     const settings = await updateSettings(patch)
     if (patch.logRetentionDays !== undefined) await logger.prune(settings.logRetentionDays)
     if (patch.transferConcurrency !== undefined) transferEngine.setConcurrency(settings.transferConcurrency)
+    if (patch.adaptiveConnectionSpeed !== undefined) transferEngine.setAdaptive(settings.adaptiveConnectionSpeed ?? false)
     return settings
   })
 
@@ -1193,6 +1244,7 @@ app.whenReady().then(async () => {
   const settings = await getSettings()
   await logger.prune(settings.logRetentionDays)
   transferEngine.setConcurrency(settings.transferConcurrency)
+  transferEngine.setAdaptive(settings.adaptiveConnectionSpeed ?? false)
   log.info('app', `Conduit ${app.getVersion()} started`)
 
   // Start scheduled syncs
