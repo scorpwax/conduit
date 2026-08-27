@@ -11,6 +11,10 @@
   <!-- Allow access to all files (needed for a file manager that browses the whole filesystem) -->
   <key>com.apple.security.files.all</key>
   <true/>
+  <!-- Required for V8's JIT to allocate executable memory under hardened runtime —
+       without this, Electron crashes with EXC_BREAKPOINT at launch on Apple Silicon -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
   <!-- Allow child processes (e.g. rclone, qlmanage, du) -->
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>

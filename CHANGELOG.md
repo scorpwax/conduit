@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.26.2] — 2026-08-27
+
+### Fixed
+- **Crash on launch on Apple Silicon Macs** — v1.26.1's move to a properly notarized, hardened-runtime build was missing the `com.apple.security.cs.allow-jit` entitlement. Without it, hardened runtime blocks V8 from allocating executable JIT memory on arm64, and the app crashed immediately at startup (`EXC_BREAKPOINT` during Electron/V8 initialization). Intel Macs were unaffected. Added the missing entitlement.
+
 ## [1.26.1] — 2026-08-26
 
 ### Fixed
