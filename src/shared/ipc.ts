@@ -76,10 +76,15 @@ export const IPC = {
   appCheckUpdates: 'app:checkUpdates',
   appOpenExternal: 'app:openExternal',
 
+  verifyStart: 'verify:start',
+  verifyCancel: 'verify:cancel',
+
   // main -> renderer push events
   evtTransferUpdate: 'evt:transfer:update',
   evtTransferAdded: 'evt:transfer:added',
   evtLog: 'evt:log',
   evtSyncProgress: 'evt:sync:progress',
-  evtUpdateAvailable: 'evt:update:available'
+  evtUpdateAvailable: 'evt:update:available',
+  evtVerifyProgress: 'evt:verify:progress',
+  evtVerifyDone: 'evt:verify:done'
 } as const

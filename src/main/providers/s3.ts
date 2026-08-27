@@ -19,6 +19,7 @@ import {
 import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult } from '@shared/types'
+import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
 import type { Provider } from './types'
 
 /** Real AWS region ids — used to flag likely S3-compatible configs missing an endpoint. */
@@ -202,7 +203,7 @@ export class S3Provider implements Provider {
         params: { Bucket: this.cfg.bucket, Key: key, Body: body, ContentLength: size },
         // 32 MB parts × 6 parallel = 192 MB in-flight at once.
         // Cyberduck uses similar settings; this is the main lever for upload throughput.
-        partSize: 32 * 1024 * 1024,
+        partSize: S3_MULTIPART_PART_SIZE,
         queueSize: 6,
         leavePartsOnError: false
       })

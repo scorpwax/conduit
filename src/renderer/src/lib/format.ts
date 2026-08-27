@@ -10,6 +10,22 @@ export function formatBytes(bytes: number): string {
   return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`
 }
 
+/** Windows Explorer traditionally displays sizes with base-1024 math while
+ *  still labeling them KB/MB/GB (they're technically KiB/MiB/GiB) — this
+ *  mirrors that so the Properties panel can show both readings for the
+ *  same byte count alongside macOS's base-1000 `formatBytes`. */
+export function formatBytesBinary(bytes: number): string {
+  if (!bytes || bytes < 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let n = bytes
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i++
+  }
+  return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`
+}
+
 export function formatSpeed(bytesPerSec?: number): string {
   if (!bytesPerSec || bytesPerSec <= 0) return ''
   return `${formatBytes(bytesPerSec)}/s`

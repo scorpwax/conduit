@@ -4,7 +4,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { IPC } from '@shared/ipc'
-import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, SyncTask, SyncPreviewItem } from '@shared/types'
+import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, FolderContentsResult, SyncTask, SyncPreviewItem, VerifyItem, VerifyResult, VerifyProgress } from '@shared/types'
 import { BUILTIN_LOCAL, BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { syncStore } from './syncStore'
 import { syncEngine } from './sync/engine'
@@ -15,6 +15,8 @@ import { getProvider, createProvider, invalidateProvider, closeAllProviders, get
 import { listDrives } from './drives'
 import { mountS3, unmountAll } from './rclone'
 import { transferEngine } from './transfer/engine'
+import { verifyEngine } from './verify'
+import { isJunkEntryName, findPruneArgs } from './junkFiles'
 import { previewFile } from './preview'
 import { runOAuth, runOAuthInWindow, handleCustomSchemeCallback } from './oauth'
 import { GOOGLE_OAUTH } from './providers/gdrive'
@@ -182,6 +184,9 @@ transferEngine.on('added', (items) => {
   pendingAdded.push(...items)
   if (addedFlushTimer === null) addedFlushTimer = setTimeout(flushAdded, 500)
 })
+
+verifyEngine.on('progress', (p: VerifyProgress) => sendToRenderer(IPC.evtVerifyProgress, p))
+verifyEngine.on('done', (result: VerifyResult) => sendToRenderer(IPC.evtVerifyDone, result))
 
 async function createWindow(): Promise<void> {
   // Restore window bounds from the last session if available.
@@ -704,9 +709,25 @@ function registerIpc(): void {
           const { execFile } = await import('child_process')
           const { promisify } = await import('util')
           const execFileP = promisify(execFile)
-          const { stdout } = await execFileP('du', ['-sk', args.path])
-          const kb = parseInt(stdout.trim().split(/\s/)[0], 10)
-          size = isNaN(kb) ? 0 : kb * 1024
+          // `du -sk` reports disk BLOCKS used (rounds every file up to the next
+          // filesystem block), not the exact byte sum — that mismatched the exact
+          // stat-walk Windows does and the exact object-size sum S3/Wasabi report,
+          // which made local-vs-bucket verification unreliable on macOS. `find`
+          // batches many files per `stat` invocation (still native, still fast)
+          // and reports each file's exact logical size instead.
+          const statFormatArg = process.platform === 'darwin' ? '-f%z' : '-c%s'
+          // Prune OS-bookkeeping files/folders (.DS_Store, Thumbs.db, AppleDouble
+          // sidecars, etc.) so folder size reflects actual transferred content,
+          // not filesystem debris a drive picked up from being used on either OS.
+          const { stdout } = await execFileP(
+            'find',
+            [args.path, ...findPruneArgs(), '-type', 'f', '-exec', 'stat', statFormatArg, '{}', '+'],
+            { maxBuffer: 64 * 1024 * 1024 }
+          )
+          size = stdout.split('\n').reduce((sum, line) => {
+            const n = parseInt(line.trim(), 10)
+            return sum + (isNaN(n) ? 0 : n)
+          }, 0)
         } else {
           // Windows: pure-Node recursive walk.
           const { promises: fsP } = await import('fs')
@@ -714,6 +735,7 @@ function registerIpc(): void {
             let total = 0
             const entries = await fsP.readdir(dir, { withFileTypes: true })
             for (const e of entries) {
+              if (isJunkEntryName(e.name)) continue
               const p = `${dir}\\${e.name}`
               if (e.isDirectory()) total += await dirSize(p)
               else if (e.isFile()) total += (await fsP.stat(p)).size
@@ -731,26 +753,34 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC.fsChecksum,
-    async (_e, args: { connectionId: string; path: string }): Promise<string | null> => {
+    async (_e, args: { connectionId: string; path: string; multipart?: { partSizeBytes: number } }): Promise<string | null> => {
       try {
         const provider = await getProvider(args.connectionId)
-        return provider.checksum ? await provider.checksum(args.path) : null
+        return provider.checksum ? await provider.checksum(args.path, args.multipart) : null
       } catch {
         return null
       }
     }
   )
 
+  ipcMain.handle(IPC.verifyStart, (_e, items: VerifyItem[]) => verifyEngine.start(items))
+  ipcMain.handle(IPC.verifyCancel, (_e, runId: string) => verifyEngine.cancel(runId))
+
   ipcMain.handle(
     IPC.fsFolderContents,
-    async (_e, args: { connectionId: string; path: string }): Promise<{ files: number; folders: number } | null> => {
+    async (_e, args: { connectionId: string; path: string }): Promise<FolderContentsResult | null> => {
       try {
         const provider = await getProvider(args.connectionId)
         let files = 0
         let folders = 0
+        let hiddenJunk = 0
         const walk = async (path: string): Promise<void> => {
           const result = await provider.list(path)
           for (const e of result.entries) {
+            if (isJunkEntryName(e.name)) {
+              hiddenJunk++
+              continue
+            }
             if (e.kind === 'directory') {
               folders++
               await walk(e.path)
@@ -760,7 +790,7 @@ function registerIpc(): void {
           }
         }
         await walk(args.path)
-        return { files, folders }
+        return { files, folders, hiddenJunk }
       } catch {
         return null
       }

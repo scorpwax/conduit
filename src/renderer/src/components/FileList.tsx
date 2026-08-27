@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry, TreeNode, FolderTreeResult } from '@shared/types'
+import type { FileEntry, TreeNode, FolderTreeResult, FolderContentsResult, VerifyResult } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
+import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
 import type { PaneState } from '../store'
 import { useStore } from '../store'
-import { formatBytes, formatDate, fileIcon, fileType } from '../lib/format'
+import { formatBytes, formatBytesBinary, formatDate, fileIcon, fileType } from '../lib/format'
 import { setDrag, clearDrag, getDrag } from '../lib/drag'
 import { confirmDialog, promptDialog, choiceDialog } from '../lib/dialog'
+import { connPathKey } from '../lib/connectionKey'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { BatchRenameModal } from './BatchRenameModal'
 import { FolderBrowserModal } from './FolderBrowserModal'
@@ -15,7 +17,7 @@ interface Props {
   filter: string
   folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
   setFolderSizes: React.Dispatch<React.SetStateAction<Record<string, { size: number; latestModified: string | null } | 'loading' | null>>>
-  fetchFolderSize: (path: string) => void
+  fetchFolderSize: (connectionId: string, path: string) => void
 }
 
 type SortKey = 'name' | 'size' | 'type' | 'modified'
@@ -50,7 +52,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const [infoEntries, setInfoEntries] = useState<FileEntry[] | null>(null)
   const [infoFull, setInfoFull] = useState<FileEntry | null>(null)
   const [infoChecksum, setInfoChecksum] = useState<string | null | 'loading'>('loading')
-  const [infoContents, setInfoContents] = useState<{ files: number; folders: number } | null | 'loading'>('loading')
+  const [infoContents, setInfoContents] = useState<FolderContentsResult | null | 'loading'>('loading')
   const [moveToEntry, setMoveToEntry] = useState<FileEntry[] | null>(null)
   // Maps a path to a short verb ("deleting", "renaming", "duplicating") while
   // that row has an in-flight operation, so the user sees something is
@@ -105,9 +107,10 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const fetchDirSizes = useCallback(
     (dirs: FileEntry[]) => {
       if (!pane.connectionId || dirs.length === 0) return
-      const connType = connections.find((c) => c.id === pane.connectionId)?.type ?? 'local'
+      const connId = pane.connectionId
+      const connType = connections.find((c) => c.id === connId)?.type ?? 'local'
       if (connType !== 'local' && connType !== 'smb') return
-      dirs.forEach((d) => fetchFolderSize(d.path))
+      dirs.forEach((d) => fetchFolderSize(connId, d.path))
     },
     [pane.connectionId, connections, fetchFolderSize]
   )
@@ -548,7 +551,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     } else {
       setInfoChecksum(null)
       void window.conduit.fs.folderContents(pane.connectionId, single.path).then((c) => setInfoContents(c))
-      fetchFolderSize(single.path)
+      fetchFolderSize(pane.connectionId, single.path)
     }
   }
 
@@ -687,12 +690,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                     const webUrl = conn ? buildWebUrl(conn, e.path) : null
                     const pathLen = e.path.length
                     const pathOverLimit = pathLen > 256
-                    const fsz = folderSizes[e.path]
+                    const fsz = pane.connectionId ? folderSizes[connPathKey(pane.connectionId, e.path)] : undefined
                     const sizeVal = (() => {
                       if (e.kind === 'directory') {
                         if (!fsz || fsz === 'loading') return 'Calculating…'
                         if (typeof fsz === 'object') {
-                          const human = formatBytes(fsz.size)
+                          const human = formatSize(fsz.size)
                           const raw = fsz.size.toLocaleString()
                           return fsz.size >= 1000 ? `${human} (${raw} bytes)` : human
                         }
@@ -700,7 +703,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                       }
                       const bytes = e.size ?? 0
                       if (!bytes) return '—'
-                      const human = formatBytes(bytes)
+                      const human = formatSize(bytes)
                       const raw = bytes.toLocaleString()
                       return bytes >= 1000 ? `${human} (${raw} bytes)` : human
                     })()
@@ -760,14 +763,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                     if (!isDir) {
                       const bytes = infoFull?.size ?? single.size ?? 0
                       if (!bytes) return '—'
-                      const human = formatBytes(bytes)
+                      const human = formatSize(bytes)
                       const raw = bytes.toLocaleString()
                       return bytes >= 1000 ? `${human} (${raw} bytes)` : human
                     }
-                    const fsz = folderSizes[single.path]
+                    const fsz = pane.connectionId ? folderSizes[connPathKey(pane.connectionId, single.path)] : undefined
                     if (fsz === 'loading' || fsz === undefined) return 'Calculating…'
                     if (fsz && typeof fsz === 'object') {
-                      const human = formatBytes(fsz.size)
+                      const human = formatSize(fsz.size)
                       const raw = fsz.size.toLocaleString()
                       return fsz.size >= 1000 ? `${human} (${raw} bytes)` : human
                     }
@@ -775,7 +778,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                   })()}
                 />
                 {(() => {
-                  const fsz = folderSizes[single.path]
+                  const fsz = pane.connectionId ? folderSizes[connPathKey(pane.connectionId, single.path)] : undefined
                   const folderModified = (fsz && typeof fsz === 'object') ? fsz.latestModified : null
                   const modDate = infoFull?.modified ?? single.modified ?? folderModified
                   return modDate ? <FileInfoRow label="Modified" value={formatDate(modDate)} /> : null
@@ -784,10 +787,21 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                   if (infoContents === 'loading') return <FileInfoRow label="Item Count" value="Counting…" />
                   if (!infoContents) return null
                   const total = infoContents.files + infoContents.folders
-                  const parts = [`${total.toLocaleString()} Items`]
-                  if (infoContents.files > 0) parts.push(`${infoContents.files.toLocaleString()} Files`)
-                  if (infoContents.folders > 0) parts.push(`${infoContents.folders.toLocaleString()} Folders`)
-                  return <FileInfoRow label="Item Count" value={parts.join(' · ')} />
+                  const parts = [
+                    `${total.toLocaleString()} items Total`,
+                    `${infoContents.files.toLocaleString()} Files`,
+                    `${infoContents.folders.toLocaleString()} Folders`
+                  ]
+                  if (infoContents.hiddenJunk > 0) {
+                    parts.push(`${infoContents.hiddenJunk.toLocaleString()} Hidden File${infoContents.hiddenJunk !== 1 ? 's' : ''}`)
+                  }
+                  return (
+                    <FileInfoRow
+                      label="Item Count"
+                      value={`${parts[0]} — ${parts.slice(1).join(' • ')}`}
+                      note={infoContents.hiddenJunk > 0 ? 'Hidden files not included in final item count' : undefined}
+                    />
+                  )
                 })()}
                 {!isDir && (
                   <FileInfoRow
@@ -952,12 +966,12 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
               </div>
               <div
                 className="file-size"
-                onClick={isDir ? (e) => { e.stopPropagation(); fetchFolderSize(entry.path) } : undefined}
-                title={isDir && !folderSizes[entry.path] ? 'Click to calculate size' : undefined}
+                onClick={isDir ? (e) => { e.stopPropagation(); if (pane.connectionId) fetchFolderSize(pane.connectionId, entry.path) } : undefined}
+                title={isDir && pane.connectionId && !folderSizes[connPathKey(pane.connectionId, entry.path)] ? 'Click to calculate size' : undefined}
               >
                 {isDir
                   ? (() => {
-                      const fsz = folderSizes[entry.path]
+                      const fsz = pane.connectionId ? folderSizes[connPathKey(pane.connectionId, entry.path)] : undefined
                       if (fsz === 'loading') return '…'
                       if (fsz && typeof fsz === 'object') return formatBytes(fsz.size)
                       return <span style={{ color: 'var(--text-faint)', cursor: 'pointer' }} title="Click to calculate size">—</span>
@@ -967,8 +981,8 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
               <div className="file-type">{fileType(entry.name, entry.kind)}</div>
               <div className="file-mod">{(() => {
                 if (entry.modified) return formatDate(entry.modified)
-                if (isDir) {
-                  const fsz = folderSizes[entry.path]
+                if (isDir && pane.connectionId) {
+                  const fsz = folderSizes[connPathKey(pane.connectionId, entry.path)]
                   if (fsz && typeof fsz === 'object' && fsz.latestModified) return formatDate(fsz.latestModified)
                 }
                 return '—'
@@ -1115,6 +1129,13 @@ function buildWebUrl(conn: { type: string; config: unknown }, path: string): str
   return `https://${bucket}.s3.${region}.amazonaws.com/${key}`
 }
 
+/** Formats a byte count using whichever unit convention matches the OS Conduit
+ *  is currently running on — decimal (macOS) or binary-but-labeled-GB (Windows) —
+ *  so the Properties Size row reads the same as that OS's own file manager. */
+function formatSize(bytes: number): string {
+  return window.conduit.platform === 'darwin' ? formatBytes(bytes) : formatBytesBinary(bytes)
+}
+
 // ── Move To Modal ─────────────────────────────────────────────────────────────
 function MoveToModal({ sourceConnectionId, entries, onMove, onClose }: {
   sourceConnectionId: string
@@ -1192,37 +1213,97 @@ function MoveToModal({ sourceConnectionId, entries, onMove, onClose }: {
   ) : null
 }
 
+/** Detects an S3-style multipart ETag (`<32-hex-md5>-<partCount>`) and returns
+ *  the encoded part count, or null if `value` isn't shaped like one (e.g. a
+ *  plain single-part MD5 has no `-partCount` suffix). A multipart ETag is the
+ *  MD5 of the concatenated per-part MD5s — never equal to a plain whole-file
+ *  MD5 even for byte-identical content, so a flat string compare against it
+ *  is meaningless without recomputing the same multipart-style hash locally. */
+function parseMultipartEtag(value: string): number | null {
+  const m = /^[a-f0-9]{32}-(\d+)$/i.exec(value)
+  return m ? parseInt(m[1], 10) : null
+}
+
 // ── Compare Modal ─────────────────────────────────────────────────────────────
 function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClose }: {
   items: Array<{ entry: FileEntry; connectionId: string }>
   folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
-  fetchFolderSize: (path: string) => void
+  fetchFolderSize: (connectionId: string, path: string) => void
   onClose: () => void
 }): JSX.Element {
   const connections = useStore((s) => s.connections)
   const [items, setItems] = React.useState(initialItems)
   const [stats, setStats] = React.useState<Record<string, FileEntry | null>>({})
   const [checksums, setChecksums] = React.useState<Record<string, string | null | 'loading'>>({})
-  const [contents, setContents] = React.useState<Record<string, { files: number; folders: number } | null | 'loading'>>({})
+  const [contents, setContents] = React.useState<Record<string, FolderContentsResult | null | 'loading'>>({})
   const [addingItem, setAddingItem] = React.useState(false)
   const [addConnId, setAddConnId] = React.useState(connections[0]?.id ?? '')
   const [pendingAddPath, setPendingAddPath] = React.useState('')
+  // Keys that were recomputed as a multipart-style hash (rather than a plain
+  // whole-file MD5) so the Checksum field can say so — surfaced for
+  // transparency since it means the match/mismatch came from a second pass,
+  // not a simple direct comparison. Also gates against re-triggering the
+  // recompute every render.
+  const [multipartVerified, setMultipartVerified] = React.useState<Set<string>>(new Set())
+  const reconcileAttempted = React.useRef<Set<string>>(new Set())
+
+  // ── Recursive "Verify All Files" (folder-level checksum pass) ────────────
+  const verifyRunIdRef = React.useRef<string | null>(null)
+  const [verifying, setVerifying] = React.useState(false)
+  const [verifyProgress, setVerifyProgress] = React.useState<{ done: number; total: number } | null>(null)
+  const [verifyResult, setVerifyResult] = React.useState<VerifyResult | null>(null)
+  const [showMismatches, setShowMismatches] = React.useState(false)
+  const [showMissing, setShowMissing] = React.useState(false)
+
+  React.useEffect(() => {
+    const offProgress = window.conduit.verify.onProgress((p) => {
+      if (p.runId !== verifyRunIdRef.current) return
+      setVerifyProgress({ done: p.done, total: p.total })
+    })
+    const offDone = window.conduit.verify.onDone((result) => {
+      if (result.runId !== verifyRunIdRef.current) return
+      setVerifying(false)
+      setVerifyResult(result)
+    })
+    return () => { offProgress(); offDone() }
+  }, [])
+
+  function startVerify(): void {
+    setVerifying(true)
+    setVerifyResult(null)
+    setVerifyProgress(null)
+    setShowMismatches(false)
+    setShowMissing(false)
+    const verifyItems = items.map(({ entry, connectionId }) => ({
+      connectionId,
+      path: entry.path,
+      label: connections.find((c) => c.id === connectionId)?.name ?? connectionId
+    }))
+    void window.conduit.verify.start(verifyItems).then((runId) => {
+      verifyRunIdRef.current = runId
+    })
+  }
+
+  function cancelVerify(): void {
+    if (verifyRunIdRef.current) void window.conduit.verify.cancel(verifyRunIdRef.current)
+  }
 
   function loadItem(entry: FileEntry, connId: string): void {
+    const key = connPathKey(connId, entry.path)
     void window.conduit.fs.stat(connId, entry.path).then((s) =>
-      setStats((prev) => ({ ...prev, [entry.path]: s }))
+      setStats((prev) => ({ ...prev, [key]: s }))
     )
     if (entry.kind === 'file') {
-      setChecksums((prev) => ({ ...prev, [entry.path]: 'loading' }))
+      setChecksums((prev) => ({ ...prev, [key]: 'loading' }))
       void window.conduit.fs.checksum(connId, entry.path).then((c) =>
-        setChecksums((prev) => ({ ...prev, [entry.path]: c }))
+        setChecksums((prev) => ({ ...prev, [key]: c }))
       )
     } else {
-      setContents((prev) => ({ ...prev, [entry.path]: 'loading' }))
+      setContents((prev) => ({ ...prev, [key]: 'loading' }))
       void window.conduit.fs.folderContents(connId, entry.path).then((c) =>
-        setContents((prev) => ({ ...prev, [entry.path]: c }))
+        setContents((prev) => ({ ...prev, [key]: c }))
       )
-      fetchFolderSize(entry.path)
+      fetchFolderSize(connId, entry.path)
     }
   }
 
@@ -1230,49 +1311,84 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
     for (const { entry, connectionId } of items) loadItem(entry, connectionId)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Once every item's checksum has loaded, check whether any of them is a
+  // multipart-style S3 ETag. If so, a plain whole-file MD5 on the other side
+  // can never equal it even for byte-identical content — recompute that
+  // side's checksum using Conduit's own known upload part size instead of
+  // leaving it as a false mismatch. (The part size can't be reliably derived
+  // from the ETag's encoded part count alone — the last part is a remainder,
+  // not a fixed fraction of the file size — so this only succeeds for files
+  // Conduit itself uploaded via its multipart path; a file multipart-uploaded
+  // by some other tool with a different part size will still show Mismatch,
+  // correctly, since it genuinely can't be verified this way.)
+  React.useEffect(() => {
+    const keyed = items.map(({ entry: e, connectionId }) => ({
+      key: connPathKey(connectionId, e.path),
+      entry: e,
+      connectionId
+    }))
+    const values = keyed.map(({ key }) => checksums[key])
+    if (!values.every((v) => v !== undefined && v !== 'loading')) return
+    const hasMultipartRef = values.some((v) => typeof v === 'string' && parseMultipartEtag(v) !== null)
+    if (!hasMultipartRef) return
+
+    for (const { key, entry, connectionId } of keyed) {
+      if (entry.kind !== 'file') continue
+      const v = checksums[key]
+      if (typeof v !== 'string' || parseMultipartEtag(v) !== null) continue // already multipart-shaped, or missing
+      if (reconcileAttempted.current.has(key)) continue
+      reconcileAttempted.current.add(key)
+      setChecksums((prev) => ({ ...prev, [key]: 'loading' }))
+      void window.conduit.fs.checksum(connectionId, entry.path, { partSizeBytes: S3_MULTIPART_PART_SIZE }).then((c) => {
+        setChecksums((prev) => ({ ...prev, [key]: c }))
+        setMultipartVerified((prev) => new Set(prev).add(key))
+      })
+    }
+  }, [items, checksums])
+
   // ── Derived comparison values ──────────────────────────────────────────────
   const entries = items.map((i) => i.entry)
 
-  const sizes = entries.map((e) => {
-    if (e.kind === 'file') return stats[e.path]?.size ?? e.size ?? 0
-    const fsz = folderSizes[e.path]
+  const sizes = items.map(({ entry: e, connectionId }) => {
+    if (e.kind === 'file') return stats[connPathKey(connectionId, e.path)]?.size ?? e.size ?? 0
+    const fsz = folderSizes[connPathKey(connectionId, e.path)]
     return (fsz && typeof fsz === 'object') ? fsz.size : null
   })
   const allSizesLoaded = sizes.every((s) => s !== null)
   const sizesMatch = allSizesLoaded && sizes.every((s) => s === sizes[0])
 
-  const itemCounts = entries.map((e) => {
+  const itemCounts = items.map(({ entry: e, connectionId }) => {
     if (e.kind === 'file') return null
-    const c = contents[e.path]
+    const c = contents[connPathKey(connectionId, e.path)]
     if (!c || c === 'loading') return null
     return c.files + c.folders
   })
   const allCountsLoaded = itemCounts.every((c) => c !== null)
   const countsMatch = allCountsLoaded && itemCounts.every((c) => c === itemCounts[0])
 
-  const filesLoaded = entries.map((e) => {
+  const filesLoaded = items.map(({ entry: e, connectionId }) => {
     if (e.kind === 'file') return null
-    const c = contents[e.path]
+    const c = contents[connPathKey(connectionId, e.path)]
     if (!c || c === 'loading') return null
     return c.files
   })
   const allFilesLoaded = filesLoaded.every((c) => c !== null)
   const filesMatch = allFilesLoaded && filesLoaded.every((c) => c === filesLoaded[0])
 
-  const foldersLoaded = entries.map((e) => {
+  const foldersLoaded = items.map(({ entry: e, connectionId }) => {
     if (e.kind === 'file') return null
-    const c = contents[e.path]
+    const c = contents[connPathKey(connectionId, e.path)]
     if (!c || c === 'loading') return null
     return c.folders
   })
   const allFoldersLoaded = foldersLoaded.every((c) => c !== null)
   const foldersMatch = allFoldersLoaded && foldersLoaded.every((c) => c === foldersLoaded[0])
 
-  const checksumValues = entries.map((e) => checksums[e.path])
+  const checksumValues = items.map(({ entry: e, connectionId }) => checksums[connPathKey(connectionId, e.path)])
   const checksumsLoaded = checksumValues.every((c) => c !== undefined && c !== 'loading')
   const checksumsMatch = checksumsLoaded && checksumValues.every((c) => c && c === checksumValues[0])
 
-  const modValues = entries.map((e) => stats[e.path]?.modified ?? e.modified ?? null)
+  const modValues = items.map(({ entry: e, connectionId }) => stats[connPathKey(connectionId, e.path)]?.modified ?? e.modified ?? null)
   const allModLoaded = modValues.every((m) => m !== null)
   const modMatch = allModLoaded && modValues.every((m) => m === modValues[0])
 
@@ -1397,17 +1513,110 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
           )}
         </div>
 
+        {/* Recursive folder-level checksum verification */}
+        {entries[0].kind === 'directory' && items.length >= 2 && (
+          <div className="verify-panel">
+            {!verifying && !verifyResult && (
+              <button className="btn primary" onClick={startVerify}>
+                Verify All Files
+              </button>
+            )}
+
+            {verifying && (
+              <div className="verify-progress">
+                <div className="verify-progress-track">
+                  <div
+                    className="verify-progress-fill"
+                    style={{
+                      width: verifyProgress && verifyProgress.total > 0
+                        ? `${Math.round((verifyProgress.done / verifyProgress.total) * 100)}%`
+                        : '0%'
+                    }}
+                  />
+                </div>
+                <span className="verify-progress-label">
+                  {verifyProgress
+                    ? `Checking ${verifyProgress.done.toLocaleString()} / ${verifyProgress.total.toLocaleString()} files…`
+                    : 'Scanning folders…'}
+                </span>
+                <button className="btn ghost" onClick={cancelVerify}>Cancel</button>
+              </div>
+            )}
+
+            {verifyResult && !verifying && (
+              <div className="verify-result">
+                {verifyResult.error ? (
+                  <div className="verify-summary-line status-error">⚠ Verify failed: {verifyResult.error}</div>
+                ) : (
+                  <>
+                    <div className={`verify-summary-line ${
+                      verifyResult.canceled ? 'status-canceled'
+                        : (verifyResult.mismatched.length === 0 && verifyResult.missing.length === 0) ? 'status-success'
+                          : 'status-error'
+                    }`}>
+                      {verifyResult.canceled ? '✕ Verify canceled — ' : verifyResult.mismatched.length === 0 && verifyResult.missing.length === 0 ? '✓ ' : '⚠ '}
+                      {verifyResult.matched.toLocaleString()} / {verifyResult.totalChecked.toLocaleString()} files verified byte-for-byte
+                      {verifyResult.mismatched.length > 0 && ` · ${verifyResult.mismatched.length.toLocaleString()} mismatched`}
+                      {verifyResult.missing.length > 0 && ` · ${verifyResult.missing.length.toLocaleString()} missing`}
+                    </div>
+
+                    {verifyResult.mismatched.length > 0 && (
+                      <div className="verify-problem-group">
+                        <button className="verify-toggle" onClick={() => setShowMismatches((v) => !v)}>
+                          {showMismatches ? '▼' : '▶'} Mismatched files ({verifyResult.mismatched.length.toLocaleString()})
+                        </button>
+                        {showMismatches && (
+                          <div className="verify-problem-list">
+                            {verifyResult.mismatched.slice(0, 200).map((m) => (
+                              <div key={m.relPath} className="verify-problem-row" title={m.relPath}>{m.relPath}</div>
+                            ))}
+                            {verifyResult.mismatched.length > 200 && (
+                              <div className="verify-problem-more">+ {(verifyResult.mismatched.length - 200).toLocaleString()} more</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {verifyResult.missing.length > 0 && (
+                      <div className="verify-problem-group">
+                        <button className="verify-toggle" onClick={() => setShowMissing((v) => !v)}>
+                          {showMissing ? '▼' : '▶'} Missing files ({verifyResult.missing.length.toLocaleString()})
+                        </button>
+                        {showMissing && (
+                          <div className="verify-problem-list">
+                            {verifyResult.missing.slice(0, 200).map((m) => (
+                              <div key={m.relPath} className="verify-problem-row" title={m.relPath}>
+                                {m.relPath} <span className="verify-problem-note">— missing from {m.missingFrom.join(', ')}</span>
+                              </div>
+                            ))}
+                            {verifyResult.missing.length > 200 && (
+                              <div className="verify-problem-more">+ {(verifyResult.missing.length - 200).toLocaleString()} more</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+                <button className="btn ghost" onClick={startVerify}>Verify Again</button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Per-item columns */}
         <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}>
           {items.map(({ entry: e, connectionId }) => {
+            const key = connPathKey(connectionId, e.path)
             const conn = connections.find((c) => c.id === connectionId) ?? null
             const connName = conn?.name ?? connectionId
-            const fsz = folderSizes[e.path]
+            const fsz = folderSizes[key]
             const itemSize = e.kind === 'file'
-              ? (stats[e.path]?.size ?? e.size ?? 0)
+              ? (stats[key]?.size ?? e.size ?? 0)
               : (fsz && typeof fsz === 'object') ? fsz.size : null
-            const itemCount = contents[e.path]
-            const checksum = checksums[e.path]
+            const itemCount = contents[key]
+            const checksum = checksums[key]
             const webUrl = conn ? buildWebUrl(conn, e.path) : null
 
             return (
@@ -1434,15 +1643,15 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
                 )}
 
                 <CompareField label="Size" matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
-                  {itemSize === null ? 'Calculating…' : (e.kind === 'file' && itemSize === 0 && stats[e.path] === undefined) ? 'Loading…' : itemSize === 0 ? '—' : formatBytes(itemSize)}
+                  {itemSize === null ? 'Calculating…' : (e.kind === 'file' && itemSize === 0 && stats[key] === undefined) ? 'Loading…' : itemSize === 0 ? '—' : formatBytes(itemSize)}
                 </CompareField>
 
                 <CompareField label="Bytes" mono matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
-                  {itemSize === null ? '—' : (e.kind === 'file' && itemSize === 0 && stats[e.path] === undefined) ? 'Loading…' : itemSize.toLocaleString()}
+                  {itemSize === null ? '—' : (e.kind === 'file' && itemSize === 0 && stats[key] === undefined) ? 'Loading…' : itemSize.toLocaleString()}
                 </CompareField>
 
                 <CompareField label="Modified" matchIcon={matchIcon(modMatch, allModLoaded)}>
-                  {(() => { const m = stats[e.path]?.modified ?? e.modified; return m ? formatDate(m) : stats[e.path] === undefined ? 'Loading…' : '—' })()}
+                  {(() => { const m = stats[key]?.modified ?? e.modified; return m ? formatDate(m) : stats[key] === undefined ? 'Loading…' : '—' })()}
                 </CompareField>
 
                 {e.kind === 'directory' && <>
@@ -1450,6 +1659,12 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
                     {!itemCount || itemCount === 'loading'
                       ? 'Counting…'
                       : (itemCount.files + itemCount.folders).toLocaleString()}
+                    {itemCount && itemCount !== 'loading' && itemCount.hiddenJunk > 0 && (
+                      <>
+                        {' '}<span className="compare-note">• {itemCount.hiddenJunk.toLocaleString()} Hidden File{itemCount.hiddenJunk !== 1 ? 's' : ''}</span>
+                        <div className="compare-note">Hidden files not included in final item count</div>
+                      </>
+                    )}
                   </CompareField>
                   <CompareField label="Files" matchIcon={matchIcon(filesMatch, allFilesLoaded)}>
                     {!itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.files.toLocaleString()}
@@ -1462,6 +1677,11 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
                 {e.kind === 'file' && (
                   <CompareField label="Checksum" mono matchIcon={matchIcon(checksumsMatch, checksumsLoaded)}>
                     {checksum === 'loading' ? 'Loading…' : (checksum ?? 'N/A')}
+                    {multipartVerified.has(key) && (
+                      <span className="compare-note" title="This file was uploaded in multiple parts, so its checksum can't be compared directly — this hash was recomputed locally using the same part boundaries to verify it byte-for-byte.">
+                        {' '}(verified via multipart hash)
+                      </span>
+                    )}
                   </CompareField>
                 )}
               </div>

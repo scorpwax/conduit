@@ -10,6 +10,7 @@ import { getDrag, clearDrag } from '../lib/drag'
 import { setPaneDrag, getPaneDrag, clearPaneDrag } from '../lib/paneDrag'
 import { promptDialog } from '../lib/dialog'
 import { ConnIcon, connColor } from '../lib/connMeta'
+import { connPathKey } from '../lib/connectionKey'
 
 interface Props {
 	pane: PaneState
@@ -52,36 +53,39 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 		setFolderSizes({})
 	}, [pane.path, pane.connectionId])
 
-	const fetchFolderSize = useCallback((path: string): void => {
-		if (!pane.connectionId) return
+	const fetchFolderSize = useCallback((connectionId: string, path: string): void => {
+		if (!connectionId) return
+		const key = connPathKey(connectionId, path)
 		setFolderSizes((s) => {
-			if (s[path] !== undefined) return s
-			return { ...s, [path]: 'loading' }
+			if (s[key] !== undefined) return s
+			return { ...s, [key]: 'loading' }
 		})
-		void window.conduit.fs.folderSize(pane.connectionId, path).then((result) => {
-			setFolderSizes((s) => ({ ...s, [path]: result }))
+		void window.conduit.fs.folderSize(connectionId, path).then((result) => {
+			setFolderSizes((s) => ({ ...s, [key]: result }))
 		}).catch(() => {
-			setFolderSizes((s) => ({ ...s, [path]: null }))
+			setFolderSizes((s) => ({ ...s, [key]: null }))
 		})
-	}, [pane.connectionId])
+	}, [])
 
 	const fetchAllFolderSizes = useCallback((): void => {
 		const dirs = pane.result?.entries.filter((e) => e.kind === 'directory') ?? []
 		if (!pane.connectionId) return
-		const connType = connections.find((c) => c.id === pane.connectionId)?.type
+		const connId = pane.connectionId
+		const connType = connections.find((c) => c.id === connId)?.type
 		// Frame.io: walk folders one at a time to avoid rate-limiting hundreds of
 		// concurrent recursive API walks. Other providers fire all at once (fast).
 		if (connType === 'frameio') {
 			void (async () => {
 				for (const dir of dirs) {
-					setFolderSizes((s) => s[dir.path] !== undefined ? s : { ...s, [dir.path]: 'loading' })
-					await window.conduit.fs.folderSize(pane.connectionId!, dir.path)
-						.then((result) => setFolderSizes((s) => ({ ...s, [dir.path]: result })))
-						.catch(() => setFolderSizes((s) => ({ ...s, [dir.path]: null })))
+					const key = connPathKey(connId, dir.path)
+					setFolderSizes((s) => s[key] !== undefined ? s : { ...s, [key]: 'loading' })
+					await window.conduit.fs.folderSize(connId, dir.path)
+						.then((result) => setFolderSizes((s) => ({ ...s, [key]: result })))
+						.catch(() => setFolderSizes((s) => ({ ...s, [key]: null })))
 				}
 			})()
 		} else {
-			for (const dir of dirs) fetchFolderSize(dir.path)
+			for (const dir of dirs) fetchFolderSize(connId, dir.path)
 		}
 	}, [pane.result, pane.connectionId, connections, fetchFolderSize])
 
@@ -173,16 +177,17 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 	}, [pane.result, showHidden])
 
 	const selectedBytes = useMemo(() => {
-		if (!pane.selection.length || !pane.result) return null
+		if (!pane.selection.length || !pane.result || !pane.connectionId) return null
+		const connId = pane.connectionId
 		const selSet = new Set(pane.selection)
 		return pane.result.entries
 			.filter((e) => selSet.has(e.path))
 			.reduce((sum, e) => {
 				if (e.kind === 'file') return sum + (e.size ?? 0)
-				const fsz = folderSizes[e.path]
+				const fsz = folderSizes[connPathKey(connId, e.path)]
 				return sum + (fsz && typeof fsz === 'object' ? fsz.size : 0)
 			}, 0)
-	}, [pane.selection, pane.result, folderSizes])
+	}, [pane.selection, pane.result, pane.connectionId, folderSizes])
 
 	const paneColor = useMemo(() => {
 		if (!pane.connectionId) return null
@@ -384,7 +389,7 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 					? <span className="status-calculating">Calculating size…</span>
 					: (() => {
 						const dirs = pane.result?.entries.filter((e) => e.kind === 'directory') ?? []
-						const hasUncalculated = dirs.some((d) => folderSizes[d.path] === undefined)
+						const hasUncalculated = !!pane.connectionId && dirs.some((d) => folderSizes[connPathKey(pane.connectionId!, d.path)] === undefined)
 						return hasUncalculated && connection ? (
 							<button className="status-calc-all" title="Calculate size of all folders" onClick={fetchAllFolderSizes}>
 								Calculate all sizes

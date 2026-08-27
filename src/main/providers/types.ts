@@ -74,10 +74,25 @@ export interface Provider {
   getLocalRoot?(): Promise<string | null>
 
   /**
-   * Return a checksum for the file at path (e.g. ETag / MD5). Returns null
-   * for providers that don't support checksums.
+   * Return a checksum for the file at path. Returns null for providers that
+   * don't support checksums.
+   *
+   * S3/Wasabi return the raw ETag: a plain MD5 hex digest for objects
+   * uploaded as a single part, or `<hash>-<partCount>` for multipart uploads
+   * (MD5 of the concatenated per-part MD5s, which is NOT comparable to a
+   * plain whole-file MD5). When `multipart` is supplied, local-filesystem
+   * providers should compute the matching multipart-style hash instead —
+   * split the file into `partSizeBytes`-sized chunks (last chunk is
+   * whatever remains), MD5 each chunk, MD5 the concatenation of those
+   * digests, and return the result in the same `<hash>-<partCount>` format
+   * (with partCount derived from how many chunks that produced) — so a
+   * large file that went through S3 multipart upload can still be verified
+   * byte-for-byte against its local source. Note: `partSizeBytes` must be
+   * the ACTUAL part size the upload used — it can't be reliably recovered
+   * from the ETag's part count alone, since the last part is a remainder,
+   * not a fixed fraction of the file size.
    */
-  checksum?(path: string): Promise<string | null>
+  checksum?(path: string, multipart?: { partSizeBytes: number }): Promise<string | null>
 
   /**
    * Return the total byte size of all objects under a folder path, plus the

@@ -1570,6 +1570,12 @@ select {
     font-style: italic;
 }
 
+.compare-note {
+    color: var(--text-faint);
+    font-size: 11px;
+    font-style: italic;
+}
+
 .info-loading {
     color: var(--text-faint);
     font-size: 12px;
@@ -4425,6 +4431,116 @@ kbd {
     height: 16px;
     margin: 0 4px;
     display: none;
+}
+
+/* ── Recursive "Verify All Files" panel ──────────────────────────────────── */
+.verify-panel {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elev);
+    flex-shrink: 0;
+}
+
+.verify-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.verify-progress-track {
+    flex: 1;
+    height: 6px;
+    border-radius: 6px;
+    background: var(--bg-elev-2);
+    overflow: hidden;
+}
+
+.verify-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 0.2s;
+}
+
+.verify-progress-label {
+    font-size: 12px;
+    color: var(--text-faint);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.verify-result {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.verify-summary-line {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+}
+
+.verify-summary-line.status-success {
+    color: var(--success);
+}
+
+.verify-summary-line.status-error {
+    color: var(--danger);
+}
+
+.verify-summary-line.status-canceled {
+    color: var(--warn);
+}
+
+.verify-problem-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.verify-toggle {
+    background: none;
+    border: none;
+    padding: 4px 0;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: left;
+    cursor: pointer;
+}
+
+.verify-toggle:hover {
+    color: var(--accent);
+}
+
+.verify-problem-list {
+    max-height: 180px;
+    overflow-y: auto;
+    background: var(--bg-elev-2);
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-bottom: 4px;
+}
+
+.verify-problem-row {
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text-dim);
+    padding: 2px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.verify-problem-note {
+    font-family: var(--font);
+    color: var(--text-faint);
+    font-style: italic;
+}
+
+.verify-problem-more {
+    font-size: 11px;
+    color: var(--text-faint);
+    padding-top: 4px;
+    font-style: italic;
 }
 
 .compare-field-header {

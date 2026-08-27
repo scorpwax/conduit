@@ -2,6 +2,7 @@ import { createReadStream, createWriteStream, promises as fs } from 'fs'
 import { basename, dirname, join, sep } from 'path'
 import { homedir } from 'os'
 import { pipeline } from 'stream/promises'
+import { createHash } from 'crypto'
 import type { Readable } from 'stream'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, LocalConfig } from '@shared/types'
 import type { Provider } from './types'
@@ -145,6 +146,49 @@ export class LocalProvider implements Provider {
 
   async getLocalRoot(): Promise<string | null> {
     return this.root()
+  }
+
+  /**
+   * Plain whole-file MD5 by default — matches the ETag S3/Wasabi return for
+   * single-part uploads. When `multipart` is given (the actual part size the
+   * upload used), computes the same S3-style multipart hash instead, so large
+   * files that went through multipart upload can still be verified against
+   * their local source. See the `Provider.checksum` doc for why this needs
+   * the real part size rather than just the ETag's encoded part count.
+   */
+  async checksum(path: string, multipart?: { partSizeBytes: number }): Promise<string | null> {
+    const full = this.resolve(path)
+    try {
+      if (multipart && multipart.partSizeBytes > 0) {
+        const { size } = await fs.stat(full)
+        const handle = await fs.open(full, 'r')
+        try {
+          const partDigests: Buffer[] = []
+          let offset = 0
+          while (offset < size) {
+            const length = Math.min(multipart.partSizeBytes, size - offset)
+            const buf = Buffer.alloc(length)
+            await handle.read(buf, 0, length, offset)
+            partDigests.push(createHash('md5').update(buf).digest())
+            offset += length
+          }
+          const combined = createHash('md5').update(Buffer.concat(partDigests)).digest('hex')
+          return `${combined}-${partDigests.length}`
+        } finally {
+          await handle.close()
+        }
+      }
+
+      return await new Promise<string>((resolve, reject) => {
+        const hash = createHash('md5')
+        const stream = createReadStream(full, { highWaterMark: 4 * 1024 * 1024 })
+        stream.on('data', (chunk) => hash.update(chunk as Buffer))
+        stream.on('end', () => resolve(hash.digest('hex')))
+        stream.on('error', reject)
+      })
+    } catch {
+      return null
+    }
   }
 
   async test(): Promise<ConnectionTestResult> {

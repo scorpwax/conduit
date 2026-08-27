@@ -353,6 +353,15 @@ export interface FolderTreeResult {
   truncated: boolean
 }
 
+/** Result returned by the fsFolderContents IPC handler. */
+export interface FolderContentsResult {
+  files: number
+  folders: number
+  /** Count of OS-bookkeeping entries (.DS_Store, Thumbs.db, AppleDouble `._*`
+   *  sidecar files, etc.) found and excluded from files/folders above. */
+  hiddenJunk: number
+}
+
 export interface SyncRun {
   runId: string
   taskId: string
@@ -362,6 +371,41 @@ export interface SyncRun {
   stats: SyncRunStats | null
   error: string | null
   startedAt: number
+}
+
+// ── Folder verification (Compare's recursive checksum pass) ─────────────────
+
+export interface VerifyItem {
+  connectionId: string
+  path: string
+  label: string
+}
+
+export interface VerifyProgress {
+  runId: string
+  done: number
+  total: number
+}
+
+export interface VerifyMismatch {
+  relPath: string
+  reason: string
+}
+
+export interface VerifyMissing {
+  relPath: string
+  /** Labels of the items (from VerifyItem.label) this path is missing from. */
+  missingFrom: string[]
+}
+
+export interface VerifyResult {
+  runId: string
+  totalChecked: number
+  matched: number
+  mismatched: VerifyMismatch[]
+  missing: VerifyMissing[]
+  canceled: boolean
+  error: string | null
 }
 
 export interface UpdateInfo {

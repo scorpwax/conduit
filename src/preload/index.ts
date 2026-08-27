@@ -15,11 +15,15 @@ import type {
   AppSettings,
   UiState,
   FolderTreeResult,
+  FolderContentsResult,
   SyncTask,
   SyncPreviewItem,
   SyncRunStats,
   SyncProgress,
-  UpdateInfo
+  UpdateInfo,
+  VerifyItem,
+  VerifyProgress,
+  VerifyResult
 } from '../shared/types'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
@@ -73,9 +77,9 @@ const api = {
       ipcRenderer.invoke(IPC.fsRevealFile, { path }),
     folderSize: (connectionId: string, path: string): Promise<{ size: number; latestModified: string | null } | null> =>
       ipcRenderer.invoke(IPC.fsFolderSize, { connectionId, path }),
-    checksum: (connectionId: string, path: string): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path }),
-    folderContents: (connectionId: string, path: string): Promise<{ files: number; folders: number } | null> =>
+    checksum: (connectionId: string, path: string, multipart?: { partSizeBytes: number }): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path, multipart }),
+    folderContents: (connectionId: string, path: string): Promise<FolderContentsResult | null> =>
       ipcRenderer.invoke(IPC.fsFolderContents, { connectionId, path }),
     folderTree: (connectionId: string, path: string): Promise<FolderTreeResult> =>
       ipcRenderer.invoke(IPC.fsFolderTree, { connectionId, path }),
@@ -110,6 +114,20 @@ const api = {
       const listener = (_e: unknown, items: TransferItem[]): void => cb(items)
       ipcRenderer.on(IPC.evtTransferAdded, listener)
       return () => ipcRenderer.removeListener(IPC.evtTransferAdded, listener)
+    }
+  },
+  verify: {
+    start: (items: VerifyItem[]): Promise<string> => ipcRenderer.invoke(IPC.verifyStart, items),
+    cancel: (runId: string): Promise<void> => ipcRenderer.invoke(IPC.verifyCancel, runId),
+    onProgress: (cb: (p: VerifyProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: VerifyProgress): void => cb(p)
+      ipcRenderer.on(IPC.evtVerifyProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.evtVerifyProgress, listener)
+    },
+    onDone: (cb: (result: VerifyResult) => void): (() => void) => {
+      const listener = (_e: unknown, result: VerifyResult): void => cb(result)
+      ipcRenderer.on(IPC.evtVerifyDone, listener)
+      return () => ipcRenderer.removeListener(IPC.evtVerifyDone, listener)
     }
   },
   dialog: {

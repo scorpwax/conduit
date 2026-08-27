@@ -22,8 +22,11 @@ of when things landed.
   _(Raised by a beta tester, 2026-08-26.)_
 - **Bandwidth throttle** — cap transfer speed (Mbps) so Conduit transfers don't hog
   the connection while doing video calls or other network use alongside it.
-- **Checksum verification toggle** — optional MD5/ETag compare on top of the existing
+- **COMPLETE v1.28.0 – Checksum verification toggle** — optional MD5/ETag compare on top of the existing
   size-verify, for extra integrity assurance on critical media files (BRAW/R3D/etc.).
+  Shipped as multipart-aware checksum verification (built into Compare's existing
+  Checksum field, not a separate toggle) plus a recursive "Verify All Files" pass for
+  whole-folder verification — see CHANGELOG v1.28.0.
 - **COMPLETE v1.27.0 – Low-bandwidth warning** — instead of auto-pausing, show a warning banner (e.g.
   "Your bandwidth is low, transfer speeds will be affected") when throughput drops
   or retries spike, so the user knows what's happening without the transfer stalling

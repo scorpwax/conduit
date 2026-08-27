@@ -12,6 +12,18 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.28.0] — 2026-08-27
+
+### Added
+- **Trustworthy checksum verification for large files** — local files now get a real checksum (previously always blank, which made Compare's Checksum row show a permanent false Mismatch for any local-vs-cloud comparison). For files uploaded via S3 multipart (anything over 50MB — i.e. most footage), Conduit now recomputes the same multipart-style hash locally instead of comparing two incompatible kinds of numbers, so large video files can actually be verified byte-for-byte. A "(verified via multipart hash)" note shows when a match came from that reconciliation pass.
+- **"Verify All Files"** (Compare, when comparing 2+ folders) — recursively walks both folder trees, matches every file by its path relative to each root, checksums everything present on all sides, and reports exactly what's mismatched or missing (and which side it's missing from) — with a live progress bar and cancel support. Built for verifying a full crew drive against its Wasabi backup before wiping the source.
+- **OS bookkeeping files excluded from folder size, item count, and verification** — `.DS_Store`, `.Spotlight-V100`, `.Trashes`, macOS's `._*` AppleDouble sidecars, Windows' `Thumbs.db`/`desktop.ini`/`System Volume Information`, etc. no longer inflate folder size or item count, or show up as false mismatches/missing files in Verify. A note (e.g. "3 Hidden Files" / "Hidden files not included in final item count") shows when any were found and excluded.
+
+### Fixed
+- **Folder size/checksum caches colliding across connections** — comparing a folder on one connection (e.g. Wasabi) against a folder on a different connection (e.g. a local drive) could get stuck on "Calculating…" forever, or show a folder size that belonged to the wrong connection entirely. The underlying caches (folder size, stat info, checksums, item counts) were keyed by file path alone; they're now keyed by connection + path.
+- **macOS folder size used disk-block accounting, not actual file bytes** — `du -sk` rounds every file up to the next filesystem block, so it never quite matched Windows' or S3's exact byte-sum, making local-vs-cloud size comparisons unreliable on Mac. Folder size is now an exact sum of file bytes on macOS too (same math, still fast — batches many files per `stat` call instead of one Node read per file).
+- **Size now matches whichever OS Conduit is running on** — one "Size" row (no more separate Mac/Windows rows), automatically formatted with decimal math on macOS and binary-but-labeled-GB math on Windows, matching each OS's own convention.
+
 ## [1.27.0] — 2026-08-27
 
 ### Added
