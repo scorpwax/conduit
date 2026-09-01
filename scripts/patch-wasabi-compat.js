@@ -1,15 +1,19 @@
 /**
- * Patches @smithy/core's _parseRfc7231DateTime to handle ISO 8601 / RFC 3339
- * timestamps (e.g. "2026-07-22T18:18:46Z") as a fallback before throwing.
+ * Patches @smithy/core's _parseRfc7231DateTime to handle two non-standard
+ * date formats Wasabi has been observed sending in response headers (e.g.
+ * `Expires`), instead of throwing and aborting the whole upload/transfer:
  *
- * Some S3-compatible providers (notably Wasabi) return `Expires` as ISO 8601
- * rather than the RFC 7231 format the AWS SDK expects. Without this patch,
- * every S3 API response from Wasabi that includes an Expires header throws
- * "Invalid RFC7231 date-time value", aborting multipart and single-part
- * uploads alike.
+ * 1. ISO 8601 / RFC 3339 (e.g. "2026-07-22T18:18:46Z") instead of RFC 7231.
+ * 2. Go's `time.Time.String()` debug format (e.g.
+ *    "2026-09-08 22:38:10.499906814 +0000 UTC m=+605635.748080191") —
+ *    never meant to be sent over the wire (that trailing `m=+...` is Go's
+ *    internal monotonic clock reading), but Wasabi has sent it at least once.
+ *    Reformatted into RFC 3339 and handed to the same fallback as #1.
  *
- * The function RFC3339_WITH_OFFSET already exists in the same file and
- * correctly parses Wasabi's format; this patch adds it as a fallback.
+ * Each fallback is applied as its own idempotent patch (checked separately),
+ * so re-running this after an SDK upgrade only re-applies whichever ones are
+ * missing — including upgrading an install that only has the older,
+ * single-fallback version of this patch.
  *
  * Patched files:
  *   dist-es  — used by bundlers (electron-vite dev/build)
@@ -31,16 +35,38 @@ const TARGETS = [
   'node_modules/@smithy/core/dist-cjs/submodules/serde/index.native.js',
 ]
 
-const NEEDLE = `    throw new TypeError(\`Invalid RFC7231 date-time value \${value}.\`);`
+const THROW_LINE = `    throw new TypeError(\`Invalid RFC7231 date-time value \${value}.\`);`
 
-// The dist-es file uses RFC3339_WITH_OFFSET; the dist-cjs files also define it.
-const REPLACEMENT = `    // Fallback: some S3-compatible providers (e.g. Wasabi) return ISO 8601 /
+// Both replacements end with the same throw line unchanged, so the second
+// patch can still find and extend it after the first has already been applied.
+const PATCHES = [
+  {
+    marker: 'rfc3339Fallback',
+    needle: THROW_LINE,
+    replacement: `    // Fallback: some S3-compatible providers (e.g. Wasabi) return ISO 8601 /
     // RFC 3339 instead of RFC 7231. RFC3339_WITH_OFFSET handles this format.
     const rfc3339Fallback = RFC3339_WITH_OFFSET.exec(value);
     if (rfc3339Fallback) {
         return _parseRfc3339DateTimeWithOffset(value);
     }
-    throw new TypeError(\`Invalid RFC7231 date-time value \${value}.\`);`
+    ${THROW_LINE.trim()}`
+  },
+  {
+    marker: 'goTimeStringFallback',
+    needle: THROW_LINE,
+    replacement: `    // Fallback: Wasabi has been observed sending Go's time.Time debug
+    // string format instead of a real date (e.g. "2026-09-08 22:38:10.4999
+    // +0000 UTC m=+605635.748"). Reformat the real date/time/offset portion
+    // as RFC 3339 and reuse the existing RFC 3339 parser above.
+    const goTimeStringFallback = /^(\\d{4})-(\\d\\d)-(\\d\\d) (\\d\\d):(\\d\\d):(\\d\\d)(\\.\\d+)? ([-+]\\d{4}) \\S+(?: m=.*)?$/.exec(value);
+    if (goTimeStringFallback) {
+        const [, y, mo, d, h, mi, s, frac, offset] = goTimeStringFallback;
+        const iso = \`\${y}-\${mo}-\${d}T\${h}:\${mi}:\${s}\${frac || ''}\${offset.slice(0, 3)}:\${offset.slice(3)}\`;
+        return _parseRfc3339DateTimeWithOffset(iso);
+    }
+    ${THROW_LINE.trim()}`
+  }
+]
 
 let patched = 0
 let skipped = 0
@@ -52,19 +78,24 @@ for (const rel of TARGETS) {
     skipped++
     continue
   }
-  const src = readFileSync(target, 'utf8')
-  if (src.includes('rfc3339Fallback')) {
-    skipped++
-    continue
+  let src = readFileSync(target, 'utf8')
+  let fileChanged = false
+  for (const { marker, needle, replacement } of PATCHES) {
+    if (src.includes(marker)) continue // this fallback already applied
+    if (!src.includes(needle)) {
+      console.warn(`[patch-wasabi-compat] Needle not found for '${marker}' (SDK version changed?): ${rel}`)
+      continue
+    }
+    src = src.replace(needle, replacement)
+    fileChanged = true
   }
-  if (!src.includes(NEEDLE)) {
-    console.warn(`[patch-wasabi-compat] Needle not found (SDK version changed?): ${rel}`)
+  if (fileChanged) {
+    writeFileSync(target, src, 'utf8')
+    console.log(`[patch-wasabi-compat] Patched: ${rel}`)
+    patched++
+  } else {
     skipped++
-    continue
   }
-  writeFileSync(target, src.replace(NEEDLE, REPLACEMENT), 'utf8')
-  console.log(`[patch-wasabi-compat] Patched: ${rel}`)
-  patched++
 }
 
 if (patched > 0) {

@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.28.1] — 2026-09-01
+
+### Fixed
+- **Wasabi uploads could fail with "Invalid RFC7231 date-time value"** — Wasabi has been observed sending a response header (e.g. `Expires`) as a raw Go debug-string timestamp (`2026-09-08 22:38:10.499906814 +0000 UTC m=+605635.748080191`, including Go's internal monotonic clock reading) instead of a real date, which aborted the transfer. This is a second, different malformed format from the one already patched (ISO 8601) — `scripts/patch-wasabi-compat.js` now recognizes and correctly parses both.
+
 ## [1.28.0] — 2026-08-27
 
 ### Added

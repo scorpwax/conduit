@@ -39,6 +39,10 @@ of when things landed.
 - **Color-coded files/folders** — right-click → color label, tints the whole row for
   quick visual scanning (like Finder tags). Local-only for now (stored per-machine,
   not synced to the connection/provider).
+- **Colored folders (read native Finder tags)** — read a file/folder's actual macOS
+  color tag (macOS Tahoe only) and tint the row to match, instead of requiring a
+  separate Conduit-only label like the item above. Would need to read the tag from
+  the filesystem (extended attribute) rather than storing Conduit's own color state.
 - **COMPLETE v1.27.0 – Transfer speed graph** — a live throughput graph in the Transfers panel (e.g.
   sparkline of MB/s over the life of the transfer), alongside the existing
   progress/ETA display. Pairs naturally with the adaptive Connection Speed idea above
@@ -55,6 +59,9 @@ of when things landed.
   MOV, WAV) so users can jump to just the footage in a large mixed folder.
 - **Transfer presets** — save a source→destination pairing with settings (e.g.
   "Camera card → Wasabi archive") as a one-click preset.
+- **More keyboard shortcuts** — Find (search/jump within the file list), Refresh,
+  New Folder, New File, etc., beyond what's already listed under Keyboard Shortcuts
+  in Help & Docs (Space, F2, ⌘A, ⌘C, ⌘V, ⌘+/-, ⌘0).
 
 ## Sharing
 

@@ -105,11 +105,19 @@ Optional: `getLocalRoot` (local-backed providers), `checksum` (S3 returns ETag).
 - After every successful transfer, stats the destination to confirm byte count matches source
 
 ### Wasabi compatibility patch
-Wasabi returns `Expires` headers as ISO 8601 (`2026-07-22T18:18:46Z`) instead of RFC 7231.
-The AWS SDK v3's `_parseRfc7231DateTime` throws on this format. `scripts/patch-wasabi-compat.js`
-patches `@smithy/core` (all dist variants) to fall back to RFC 3339 parsing before throwing.
-Runs automatically via `postinstall`. If the SDK is updated and the patch stops applying,
-the script logs a warning but does not fail the install.
+Wasabi has been observed returning `Expires` headers in two non-standard formats that make
+the AWS SDK v3's `_parseRfc7231DateTime` throw and abort the transfer:
+- ISO 8601 (`2026-07-22T18:18:46Z`) instead of RFC 7231.
+- Go's `time.Time.String()` debug format (`2026-09-08 22:38:10.499906814 +0000 UTC
+  m=+605635.748080191`) — not a real date format, just Go's internal debug string,
+  including a monotonic clock reading that was never meant to leave the server.
+
+`scripts/patch-wasabi-compat.js` patches `@smithy/core` (all dist variants) to fall back to
+parsing both formats (reformatting the Go string as RFC 3339 first) before throwing. Each
+fallback is applied as its own idempotent patch, so re-running after an SDK upgrade only
+reapplies whichever one(s) are missing. Runs automatically via `postinstall`. If the SDK is
+updated and a patch's needle stops matching, the script logs a warning but does not fail
+the install.
 
 ### S3 large file operations
 - **Upload**: files >50 MB use `@aws-sdk/lib-storage` `Upload` (multipart)
