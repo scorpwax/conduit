@@ -36,11 +36,36 @@ jobs:
       - name: Write notarization API key
         run: echo "${{ secrets.APPLE_API_KEY_CONTENT }}" > /tmp/apple_api_key.p8
 
+      # Import the signing certificate into its own keychain ourselves, with a
+      # password we control, instead of letting electron-builder create and
+      # manage a temporary keychain from CSC_LINK/CSC_KEY_PASSWORD directly.
+      # electron-builder's own keychain-creation path hits a recurring
+      # `security set-key-partition-list` / SecKeychainUnlock failure on
+      # current macos-latest runners, unrelated to whether the certificate
+      # password itself is correct — this sidesteps it entirely.
+      - name: Import Code-Signing Certificate
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+
+          echo "${{ secrets.CSC_LINK }}" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "${{ secrets.CSC_KEY_PASSWORD }}" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          rm -f "$CERT_PATH"
+
       - name: Build & package (macOS)
+        # No CSC_LINK/CSC_KEY_PASSWORD here — electron-builder auto-discovers
+        # the identity already imported into the default keychain above.
         run: npx electron-vite build && npx electron-builder --mac --publish never
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: /tmp/apple_api_key.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
