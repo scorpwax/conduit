@@ -1,6 +1,6 @@
 import { Readable } from 'stream'
 import { posix } from 'path'
-import type { Connection, FileEntry, ListResult, ConnectionTestResult, FrameIoConfig } from '@shared/types'
+import type { Connection, FileEntry, ListResult, ConnectionTestResult, FrameIoConfig, FolderSizeResult } from '@shared/types'
 import type { Provider } from './types'
 import { refreshTokens, type OAuthProviderConfig, type OAuthTokens } from '../oauth'
 
@@ -419,7 +419,7 @@ export class FrameIoProvider implements Provider {
     this.nodes.set(posix.join(parentPath, newName), node)
   }
 
-  async folderSize(path: string): Promise<{ size: number; latestModified: string | null } | null> {
+  async folderSize(path: string): Promise<FolderSizeResult | null> {
     const p = this.norm(path)
     const accountId = await this.getAccountId()
 
@@ -481,7 +481,7 @@ export class FrameIoProvider implements Provider {
       }))
     }
 
-    return { size: totalSize, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
+    return { size: totalSize, junkBytes: 0, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
   }
 
   async exists(path: string): Promise<boolean> {

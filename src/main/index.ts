@@ -4,7 +4,7 @@ import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { execFile } from 'child_process'
 import { IPC } from '@shared/ipc'
-import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, FolderContentsResult, SyncTask, SyncPreviewItem, VerifyItem, VerifyResult, VerifyProgress } from '@shared/types'
+import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, FolderContentsResult, SyncTask, SyncPreviewItem, VerifyItem, VerifyResult, VerifyProgress, FolderSizeResult } from '@shared/types'
 import { BUILTIN_LOCAL, BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { syncStore } from './syncStore'
 import { syncEngine } from './sync/engine'
@@ -16,7 +16,7 @@ import { listDrives } from './drives'
 import { mountS3, unmountAll } from './rclone'
 import { transferEngine } from './transfer/engine'
 import { verifyEngine } from './verify'
-import { isJunkEntryName, findPruneArgs } from './junkFiles'
+import { isJunkEntryName, isHiddenJunkEntryName } from './junkFiles'
 import { previewFile } from './preview'
 import { runOAuth, runOAuthInWindow, handleCustomSchemeCallback } from './oauth'
 import { GOOGLE_OAUTH } from './providers/gdrive'
@@ -697,14 +697,15 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC.fsFolderSize,
-    async (_e, args: { connectionId: string; path: string }): Promise<{ size: number; latestModified: string | null } | null> => {
+    async (_e, args: { connectionId: string; path: string }): Promise<FolderSizeResult | null> => {
       try {
         const provider = await getProvider(args.connectionId)
         // Remote providers that implement folderSize() (e.g. S3/Wasabi)
         if (provider.folderSize) return await provider.folderSize(args.path)
         // Local providers: use OS tools for speed
         if (!provider.getLocalRoot) return null
-        let size: number
+        let size = 0
+        let junkBytes = 0
         if (process.platform === 'darwin' || process.platform === 'linux') {
           const { execFile } = await import('child_process')
           const { promisify } = await import('util')
@@ -714,37 +715,48 @@ function registerIpc(): void {
           // stat-walk Windows does and the exact object-size sum S3/Wasabi report,
           // which made local-vs-bucket verification unreliable on macOS. `find`
           // batches many files per `stat` invocation (still native, still fast)
-          // and reports each file's exact logical size instead.
-          const statFormatArg = process.platform === 'darwin' ? '-f%z' : '-c%s'
-          // Prune OS-bookkeeping files/folders (.DS_Store, Thumbs.db, AppleDouble
-          // sidecars, etc.) so folder size reflects actual transferred content,
-          // not filesystem debris a drive picked up from being used on either OS.
+          // and reports each file's exact logical size instead. We ask for the
+          // path alongside the size (delimited by '|') so junk files (matched
+          // by basename) can be tallied separately without a second pass.
+          const statFormatArg = process.platform === 'darwin' ? '-f%z|%N' : '-c%s|%n'
+          // Counts every file's bytes, junk included — matches Finder/Explorer
+          // Get Info and the S3/Wasabi folderSize() sum below, so the same
+          // folder reports the same total everywhere. Junk files are still
+          // excluded from the *item count* in fsFolderContents, and their
+          // byte contribution is broken out separately here as `junkBytes`.
           const { stdout } = await execFileP(
             'find',
-            [args.path, ...findPruneArgs(), '-type', 'f', '-exec', 'stat', statFormatArg, '{}', '+'],
+            [args.path, '-type', 'f', '-exec', 'stat', statFormatArg, '{}', '+'],
             { maxBuffer: 64 * 1024 * 1024 }
           )
-          size = stdout.split('\n').reduce((sum, line) => {
-            const n = parseInt(line.trim(), 10)
-            return sum + (isNaN(n) ? 0 : n)
-          }, 0)
+          for (const line of stdout.split('\n')) {
+            const sep = line.indexOf('|')
+            if (sep === -1) continue
+            const n = parseInt(line.slice(0, sep), 10)
+            if (isNaN(n)) continue
+            size += n
+            const base = line.slice(sep + 1).split(/[/\\]/).pop() ?? ''
+            if (isJunkEntryName(base)) junkBytes += n
+          }
         } else {
           // Windows: pure-Node recursive walk.
           const { promises: fsP } = await import('fs')
-          async function dirSize(dir: string): Promise<number> {
+          const dirSize = async (dir: string): Promise<number> => {
             let total = 0
             const entries = await fsP.readdir(dir, { withFileTypes: true })
             for (const e of entries) {
-              if (isJunkEntryName(e.name)) continue
               const p = `${dir}\\${e.name}`
-              if (e.isDirectory()) total += await dirSize(p)
-              else if (e.isFile()) total += (await fsP.stat(p)).size
+              let entrySize = 0
+              if (e.isDirectory()) entrySize = await dirSize(p)
+              else if (e.isFile()) entrySize = (await fsP.stat(p)).size
+              total += entrySize
+              if (isJunkEntryName(e.name)) junkBytes += entrySize
             }
             return total
           }
           size = await dirSize(args.path)
         }
-        return { size, latestModified: null }
+        return { size, junkBytes, latestModified: null }
       } catch {
         return null
       }
@@ -777,7 +789,15 @@ function registerIpc(): void {
         const walk = async (path: string): Promise<void> => {
           const result = await provider.list(path)
           for (const e of result.entries) {
-            if (isJunkEntryName(e.name)) {
+            // A junk file the current OS would actually hide (dot-prefixed
+            // on macOS; Windows has no reliable equivalent we can detect) is
+            // excluded from the count entirely, same as Finder/Explorer
+            // would. Junk with no such convention — Thumbs.db, desktop.ini,
+            // etc. — is still junk, but it's a perfectly visible file to
+            // Finder, so it's counted normally instead of silently dropped;
+            // otherwise Conduit's own total permanently undercounts what
+            // Get Info/Properties shows by exactly however many of these exist.
+            if (isHiddenJunkEntryName(e.name, process.platform)) {
               hiddenJunk++
               continue
             }

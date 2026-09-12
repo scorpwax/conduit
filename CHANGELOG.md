@@ -12,6 +12,21 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.29.0] — 2026-09-11
+
+### Added
+- **Resizable explorer columns** — drag any column's border (Name included) to resize; widths persist across the app. Double-click a column border to auto-fit that column to its widest currently-visible content.
+- **Show/hide metadata columns** (Settings → Explorer Columns) — beyond the default Size/Type/Modified, add Created date, Full Path, and (S3/Wasabi only) Storage Class and ETag. Select All / Deselect All included.
+- **File type quick-filter chips** — BRAW / R3D / MOV / WAV chips plus a Folders-only filter above the file list, for jumping straight to footage in a large mixed folder.
+- **More keyboard shortcuts**, all listed in Help & Docs: ⌘↑ up one level, ⌘F search/filter, ⌘R refresh, ⌘⇧N new folder, ⌘N new file, ⌘P add pane, ⌘` open Settings, ⌘L open activity log, ⌘W close pane, ⌘D duplicate, ⌘I open Properties, ⌘⇧C open Compare.
+- **Compare view redesigned as a spreadsheet grid** — one row per field (Kind, Type, Path, Size, Bytes, Modified, Total Items/Files/Folders, Checksum) with a column per compared item, so matching values line up on the same line instead of each item stacking its own independent column. Gridlines throughout, and hovering any cell highlights its whole row.
+- **Help & Docs → "Hidden / Junk Files"** — a reference table of every OS-bookkeeping filename Conduit recognizes, and whether each is actually hidden on macOS vs. Windows.
+- Byte totals in Compare now call out when a Size mismatch is fully explained by incidental OS-bookkeeping files (e.g. "Byte totals differ only by incidental OS bookkeeping files — real content matches"), instead of just flagging a plain mismatch.
+
+### Fixed
+- **Local byte totals silently excluded OS-junk files while Wasabi/S3 and Finder/Explorer counted them** — local folder size (Mac and Windows) now sums every file's bytes the same way Wasabi and the native OS do, so Size always agrees across local, cloud, and OS-native views.
+- **Item counts didn't match Finder/Explorer's own counts** — Conduit's hidden-file exclusion previously applied the same rule everywhere, but macOS and Windows disagree on what "hidden" even means (macOS: leading-dot naming; Windows: an explicit hidden attribute Conduit can't read cross-platform). Item counts are now computed per-OS, so Conduit's own total matches what Get Info/Properties shows on the OS actually doing the counting.
+
 ## [1.28.1] — 2026-09-01
 
 ### Fixed

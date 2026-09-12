@@ -18,7 +18,8 @@ import {
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
-import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult } from '@shared/types'
+import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult, FolderSizeResult } from '@shared/types'
+import { isJunkEntryName } from '../junkFiles'
 import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
 import type { Provider } from './types'
 
@@ -114,7 +115,9 @@ export class S3Provider implements Provider {
           path: obj.Key,
           kind: 'file',
           size: obj.Size ?? 0,
-          modified: obj.LastModified ? obj.LastModified.toISOString() : null
+          modified: obj.LastModified ? obj.LastModified.toISOString() : null,
+          storageClass: obj.StorageClass ?? null,
+          etag: obj.ETag ? obj.ETag.replace(/"/g, '') : null
         })
       }
 
@@ -144,7 +147,9 @@ export class S3Provider implements Provider {
         path: key,
         kind: 'file',
         size: res.ContentLength ?? 0,
-        modified: res.LastModified ? res.LastModified.toISOString() : null
+        modified: res.LastModified ? res.LastModified.toISOString() : null,
+        storageClass: res.StorageClass ?? null,
+        etag: res.ETag ? res.ETag.replace(/"/g, '') : null
       }
     } catch { /* not a file — fall through */ }
 
@@ -419,9 +424,10 @@ export class S3Provider implements Provider {
     }
   }
 
-  async folderSize(path: string): Promise<{ size: number; latestModified: string | null } | null> {
+  async folderSize(path: string): Promise<FolderSizeResult | null> {
     const prefix = path.replace(/^\/+/, '').replace(/\/$/, '') + '/'
     let totalSize = 0
+    let junkBytes = 0
     let latestMs = 0
     let ContinuationToken: string | undefined
     try {
@@ -430,7 +436,10 @@ export class S3Provider implements Provider {
           new ListObjectsV2Command({ Bucket: this.cfg.bucket, Prefix: prefix, ContinuationToken })
         )
         for (const obj of res.Contents ?? []) {
-          totalSize += obj.Size ?? 0
+          const size = obj.Size ?? 0
+          totalSize += size
+          const name = (obj.Key ?? '').split('/').pop() ?? ''
+          if (isJunkEntryName(name)) junkBytes += size
           const ms = obj.LastModified?.getTime() ?? 0
           if (ms > latestMs) latestMs = ms
         }
@@ -439,7 +448,7 @@ export class S3Provider implements Provider {
     } catch {
       return null
     }
-    return { size: totalSize, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
+    return { size: totalSize, junkBytes, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
   }
 
   async folderTree(path: string): Promise<FolderTreeResult> {

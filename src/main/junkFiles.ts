@@ -30,6 +30,26 @@ export function isJunkEntryName(name: string): boolean {
 }
 
 /**
+ * True when a junk entry is also *hidden* on the given platform — these are
+ * two different questions. "Junk" (isJunkEntryName) means "not real
+ * transferred content"; "hidden" means "would this OS's own file manager
+ * hide it from a plain item count." macOS/Finder hides purely by leading-dot
+ * naming convention (Get Info's own item count reflects this) — it has no
+ * concept of the Windows hidden-attribute bit, so a junk file with a
+ * Windows-style name and no leading dot (Thumbs.db, desktop.ini, System
+ * Volume Information, $RECYCLE.BIN) is fully visible in Finder even though
+ * it's still junk. Windows Explorer doesn't hide by dot-prefix either — it
+ * only hides files with the actual hidden attribute set, which isn't
+ * something we can read reliably cross-platform — so on win32 we treat no
+ * junk as name-hidden (a conservative "we don't know" rather than a guess).
+ */
+export function isHiddenJunkEntryName(name: string, platform: NodeJS.Platform): boolean {
+  if (!isJunkEntryName(name)) return false
+  if (platform === 'win32') return false
+  return name.startsWith('.')
+}
+
+/**
  * Builds the `find`-argument fragment that prunes every junk name (files AND
  * directories — `-prune` stops descent so contents of a junk directory like
  * `.Trashes` never get counted either) before the caller's own `-type f ...`

@@ -122,10 +122,13 @@ export default function App(): JSX.Element {
 		document.documentElement.setAttribute('data-theme', theme)
 	}, [theme])
 
-	// ⌘+ / ⌘- adjust font size (⌘0 resets).
+	// ⌘+ / ⌘- adjust font size (⌘0 resets), plus other app-wide shortcuts
+	// (Add Pane, Settings, Logs) — see Help & Docs > Keyboard Shortcuts.
 	useEffect(() => {
 		function onKey(e: KeyboardEvent): void {
 			if (!(e.metaKey || e.ctrlKey)) return
+			const target = e.target as HTMLElement | null
+			const typing = target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
 			if (e.key === '=' || e.key === '+') {
 				e.preventDefault()
 				adjustFontScale(0.1)
@@ -135,11 +138,20 @@ export default function App(): JSX.Element {
 			} else if (e.key === '0') {
 				e.preventDefault()
 				adjustFontScale(1 - useStore.getState().fontScale)
+			} else if (!typing && (e.key === 'p' || e.key === 'P') && useStore.getState().panes.length < 5) {
+				e.preventDefault()
+				addPane()
+			} else if (!typing && (e.key === '`' || e.key === '~')) {
+				e.preventDefault()
+				setSettingsOpen(true)
+			} else if (!typing && (e.key === 'l' || e.key === 'L')) {
+				e.preventDefault()
+				setLogsOpen(true)
 			}
 		}
 		window.addEventListener('keydown', onKey)
 		return () => window.removeEventListener('keydown', onKey)
-	}, [adjustFontScale])
+	}, [adjustFontScale, addPane])
 
 	// Pane widths are keyed by pane id so reordering keeps each pane's width.
 	const [grows, setGrows] = useState<Record<string, number>>({})
@@ -230,15 +242,15 @@ export default function App(): JSX.Element {
 				<button className="btn ghost toolbtn" title="Sync Tasks" onClick={() => setSyncOpen(true)}>
 					<span className="material-symbols-outlined">sync</span> Sync
 				</button>
-				<button className="btn ghost toolbtn" title="Activity log" onClick={() => setLogsOpen(true)}>
+				<button className="btn ghost toolbtn" title="Activity log (⌘L)" onClick={() => setLogsOpen(true)}>
 					<span className="material-symbols-outlined">article</span> Logs
 				</button>
-				<button className="btn ghost toolbtn" title="Settings" onClick={() => setSettingsOpen(true)}>
+				<button className="btn ghost toolbtn" title="Settings (⌘`)" onClick={() => setSettingsOpen(true)}>
 					<span className="material-symbols-outlined">settings</span> Settings
 				</button>
 				<button
 					className="btn ghost toolbtn add-pane"
-					title={panes.length >= 5 ? 'Maximum of 5 panes' : 'Add another pane'}
+					title={panes.length >= 5 ? 'Maximum of 5 panes' : 'Add another pane (⌘P)'}
 					onClick={addPane}
 					disabled={panes.length >= 5}
 				>

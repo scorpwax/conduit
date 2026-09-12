@@ -5,6 +5,7 @@
     --bg-elev-2: #1c222b;
     --panel: #12151b;
     --border: #262c37;
+    --border-light: #262c3769;
     --border-strong: #333b48;
 
     /* Text */
@@ -30,7 +31,7 @@
     --radius-sm: 7px;
     --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 
-    --row-h: 30px;
+    --row-h: 33px;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 }
@@ -378,6 +379,7 @@ select {
 /* File list */
 .file-list {
     flex: 1;
+    overflow-x: auto;
     overflow-y: auto;
     min-height: 0;
 }
@@ -385,16 +387,22 @@ select {
 .file-head {
     display: grid;
     grid-template-columns: 1fr 92px 84px 150px;
-    padding: 6px 12px;
+    padding: 0 12px;
+    height: 28px;
     position: sticky;
     top: 0;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
     color: var(--text-faint);
-    font-size: 11px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.4px;
     z-index: 1;
+    /* Belt-and-suspenders: the last column's handle (.col-resize-handle-last)
+       is positioned to stay fully inside the header's own box, but clip
+       anyway in case a column ever renders wider than its track. */
+    overflow: hidden;
 }
 
 .file-row {
@@ -404,7 +412,54 @@ select {
     padding: 0 12px;
     height: var(--row-h);
     cursor: default;
-    border-bottom: 1px solid transparent;
+    /* border-bottom: 1px solid var(--border); */
+}
+
+/* Spreadsheet-style gridlines between columns, and a subtle zebra stripe
+   on alternating rows (computed in JS, not :nth-child, since modals/menus
+   render as extra siblings that would throw off a pure-CSS index).
+   Content is clipped with an ellipsis rather than overflowing past the
+   cell's own boundary — otherwise long values (a full path, a timestamp)
+   visually spill across the border, making the column look like it never
+   actually resized even when the underlying grid track did. */
+.file-name,
+.file-col {
+    /* border-right: 1px solid var(--border-light); */
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Header cells get the same plain gridline as the row cells below them —
+   relying on the resize handle alone as the only visible divider proved too
+   easy to miss/lose. The handle still overlays this line to invite dragging
+   and to give clear feedback on hover/drag. */
+.file-head>div {
+    border-right: 1px solid var(--border);
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-head>div:last-child,
+.file-row>div:last-child {
+    border-right: none;
+}
+
+/* .file-row-alt {
+    background: var(--bg-elev-2);
+} */
+
+.file-row-alt:hover {
+    background: var(--bg-elev);
 }
 
 /* File-list typography scales with the user's font-size setting. */
@@ -423,7 +478,7 @@ select {
 }
 
 .file-row:hover {
-    background: var(--bg-elev);
+    background: var(--bg-elev-2);
 }
 
 /* Disclosure triangle for inline tree navigation. */
@@ -507,10 +562,16 @@ select {
 
 .file-size,
 .file-type,
-.file-mod {
+.file-mod,
+.file-col {
     color: var(--text-dim);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-left: 8px;
+    ;
 }
 
 .file-type {
@@ -709,10 +770,86 @@ select {
 .file-head .sortable {
     cursor: pointer;
     user-select: none;
+    position: relative;
+    font-weight: 700;
 }
 
 .file-head .sortable:hover {
     color: var(--text);
+}
+
+/* Drag handle on the trailing edge of a resizable column header — straddles
+   the boundary with the next column (half in, half poking into it) so it's
+   easy to grab. Always visible as a solid grip bar, brightens to the accent
+   color on hover/drag. Double-click fits the column to its content. */
+.col-resize-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -7px;
+    width: 14px;
+    cursor: col-resize;
+    z-index: 2;
+    display: flex;
+    justify-content: center;
+}
+
+/* The very last column has no "next column" to poke into — hug the inner
+   edge instead of overflowing past the header's own border, which used to
+   get clipped and leave a stray partial line. */
+.col-resize-handle-last {
+    right: 0;
+    width: 7px;
+}
+
+.col-resize-handle::after {
+    content: '';
+    width: 2px;
+    background: var(--border-strong);
+}
+
+.col-resize-handle:hover::after,
+.col-resize-handle:active::after {
+    width: 4px;
+    background: var(--accent);
+}
+
+/* Quick-filter chips for common media extensions. */
+.filetype-chips {
+    display: flex;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--panel);
+}
+
+.filetype-chip {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.filetype-chip:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+.filetype-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.filetype-chip.clear {
+    opacity: 0.7;
+}
+
+.filetype-chip:disabled {
+    opacity: 0.35;
+    cursor: default;
 }
 
 /* ---------- Transfer panel ---------- */
@@ -4336,56 +4473,72 @@ kbd {
     color: var(--text-faint);
 }
 
-.compare-grid {
+/* Spreadsheet-style comparison table: one row per field (label + one cell
+   per item), so matching values line up on the same line. Rows are flat
+   grid children (CompareRow returns a Fragment, not a wrapping element) so
+   they auto-flow into this shared column grid rather than each item
+   stacking its own independent column of fields. */
+.compare-table {
     display: grid;
     gap: 0;
-    overflow-y: auto;
+    overflow: auto;
     flex: 1;
+    align-content: start;
 }
 
-.compare-col {
-    padding: 14px 16px;
+.compare-table > * {
     border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
 }
 
-.compare-col:last-child {
-    border-right: none;
+.compare-th {
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+    z-index: 1;
+    padding-top: 10px;
+    padding-bottom: 10px;
 }
 
-.compare-col-name {
+.compare-th-conn {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+}
+
+.compare-th-name {
     font-size: 13px;
     font-weight: 600;
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 4px;
 }
 
-.compare-field {
+.compare-row-label {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin: 5px 0;
-}
-
-.compare-field-label {
-    font-size: 13px;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-faint);
+    background: var(--panel);
 }
 
-.compare-field>span:last-child {
+.compare-cell {
     font-size: 12px;
     color: var(--text-dim);
     word-break: break-all;
+}
+
+.compare-row-label.row-hover,
+.compare-cell.row-hover {
+    background: var(--bg-elev);
 }
 
 .compare-mono {
@@ -4543,13 +4696,6 @@ kbd {
     font-style: italic;
 }
 
-.compare-field-header {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    margin-bottom: 2px;
-}
-
 .compare-check {
     font-size: 11px;
     font-weight: 700;
@@ -4562,15 +4708,6 @@ kbd {
 
 .compare-check.mismatch {
     color: #ff5050;
-}
-
-.compare-col-conn {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--accent);
-    margin-bottom: 2px;
 }
 
 .compare-path-conn {

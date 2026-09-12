@@ -36,6 +36,7 @@ export class LocalProvider implements Provider {
           kind: stat.isDirectory() ? 'directory' : 'file',
           size: stat.size,
           modified: stat.mtime.toISOString(),
+          created: stat.birthtime.toISOString(),
           hidden: dirent.name.startsWith('.')
         })
       } catch {
@@ -62,6 +63,7 @@ export class LocalProvider implements Provider {
       kind: stat.isDirectory() ? 'directory' : 'file',
       size: stat.size,
       modified: stat.mtime.toISOString(),
+      created: stat.birthtime.toISOString(),
       hidden: basename(full).startsWith('.')
     }
   }

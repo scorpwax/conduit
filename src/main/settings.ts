@@ -10,7 +10,8 @@ const DEFAULTS: AppSettings = {
   transferConcurrency: 5,
   adaptiveConnectionSpeed: false,
   lowBandwidthWarning: true,
-  lowBandwidthThresholdBps: 1_000_000
+  lowBandwidthThresholdBps: 1_000_000,
+  visibleColumns: ['size', 'type', 'modified']
 }
 
 let cache: AppSettings | null = null

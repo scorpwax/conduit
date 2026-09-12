@@ -23,7 +23,8 @@ import type {
   UpdateInfo,
   VerifyItem,
   VerifyProgress,
-  VerifyResult
+  VerifyResult,
+  FolderSizeResult
 } from '../shared/types'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
@@ -75,7 +76,7 @@ const api = {
       ipcRenderer.invoke(IPC.fsPreview, { connectionId, path }),
     revealFile: (path: string): Promise<void> =>
       ipcRenderer.invoke(IPC.fsRevealFile, { path }),
-    folderSize: (connectionId: string, path: string): Promise<{ size: number; latestModified: string | null } | null> =>
+    folderSize: (connectionId: string, path: string): Promise<FolderSizeResult | null> =>
       ipcRenderer.invoke(IPC.fsFolderSize, { connectionId, path }),
     checksum: (connectionId: string, path: string, multipart?: { partSizeBytes: number }): Promise<string | null> =>
       ipcRenderer.invoke(IPC.fsChecksum, { connectionId, path, multipart }),

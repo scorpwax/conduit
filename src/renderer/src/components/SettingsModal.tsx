@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react'
-import type { AppSettings } from '@shared/types'
+import type { AppSettings, FileListColumnKey } from '@shared/types'
 import { useStore } from '../store'
+
+const EXPLORER_COLUMNS: { key: FileListColumnKey; label: string; hint?: string }[] = [
+  { key: 'size', label: 'Size' },
+  { key: 'type', label: 'Type' },
+  { key: 'modified', label: 'Modified' },
+  { key: 'created', label: 'Created', hint: 'File/folder creation date' },
+  { key: 'path', label: 'Full Path' },
+  { key: 'storageClass', label: 'Storage Class', hint: 'S3/Wasabi only — e.g. STANDARD, GLACIER' },
+  { key: 'etag', label: 'ETag', hint: 'S3/Wasabi only — a lighter integrity check than a full checksum' }
+]
 
 interface Props {
   onClose: () => void
@@ -287,6 +297,58 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
                 </select>
               </div>
             )}
+          </section>
+
+          {/* ── Explorer Columns ─────────────────────────────────── */}
+          <section className="settings-section">
+            <h3 className="settings-section-title">Explorer Columns</h3>
+            <p className="settings-hint" style={{ marginBottom: 10 }}>
+              Choose which metadata columns appear in the file list, beyond Name (always shown). Column widths can be dragged to resize.
+            </p>
+            <div className="settings-row">
+              <div className="settings-label">
+                <span>All Columns</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn ghost"
+                  onClick={() => setSettings({ ...settings, visibleColumns: EXPLORER_COLUMNS.map((c) => c.key) })}
+                >
+                  Select All
+                </button>
+                <button
+                  className="btn ghost"
+                  onClick={() => setSettings({ ...settings, visibleColumns: [] })}
+                >
+                  Deselect All
+                </button>
+              </div>
+            </div>
+            {EXPLORER_COLUMNS.map(({ key, label, hint }) => {
+              const cols = settings.visibleColumns ?? ['size', 'type', 'modified']
+              const checked = cols.includes(key)
+              return (
+                <div className="settings-row" key={key}>
+                  <div className="settings-label">
+                    <span>{label}</span>
+                    {hint && <span className="settings-hint">{hint}</span>}
+                  </div>
+                  <label className="st-toggle">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...cols, key]
+                          : cols.filter((c) => c !== key)
+                        setSettings({ ...settings, visibleColumns: next })
+                      }}
+                    />
+                    <span className="st-toggle-slider" />
+                  </label>
+                </div>
+              )
+            })}
           </section>
 
           {/* ── General ───────────────────────────────────────── */}
@@ -657,12 +719,59 @@ function DocsContent(): JSX.Element {
           <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
           <tbody>
             <tr><td><kbd>Space</kbd></td><td>Quick Look preview (macOS)</td></tr>
-            <tr><td><kbd>F2</kbd></td><td>Rename selected file</td></tr>
-            <tr><td><kbd>⌘A</kbd> / <kbd>Ctrl A</kbd></td><td>Select all</td></tr>
-            <tr><td><kbd>⌘C</kbd> / <kbd>Ctrl C</kbd></td><td>Copy selected files</td></tr>
-            <tr><td><kbd>⌘V</kbd> / <kbd>Ctrl V</kbd></td><td>Paste into current folder</td></tr>
-            <tr><td><kbd>⌘+</kbd> / <kbd>⌘-</kbd></td><td>Increase / decrease file list font size</td></tr>
-            <tr><td><kbd>⌘0</kbd></td><td>Reset font size</td></tr>
+            <tr><td><kbd>return</kbd></td><td>Rename selected file</td></tr>
+            <tr><td><kbd>⌘ A</kbd> / <kbd>Ctrl A</kbd></td><td>Select all</td></tr>
+            <tr><td><kbd>⌘ C</kbd> / <kbd>Ctrl C</kbd></td><td>Copy selected files</td></tr>
+            <tr><td><kbd>⌘ V</kbd> / <kbd>Ctrl V</kbd></td><td>Paste into current folder</td></tr>
+            <tr><td><kbd>⌘ D</kbd> / <kbd>Ctrl D</kbd></td><td>Duplicate selected files</td></tr>
+            <tr><td><kbd>⌘ +</kbd> / <kbd>⌘ -</kbd></td><td>Increase / decrease file list font size</td></tr>
+            <tr><td><kbd>⌘ 0</kbd></td><td>Reset font size</td></tr>
+            <tr><td><kbd>⌘ ↑</kbd> / <kbd>Ctrl ↑</kbd></td><td>Up one level</td></tr>
+            <tr><td><kbd>⌘ F</kbd> / <kbd>Ctrl F</kbd></td><td>Search / filter in current pane</td></tr>
+            <tr><td><kbd>⌘ R</kbd> / <kbd>Ctrl R</kbd></td><td>Refresh current pane</td></tr>
+            <tr><td><kbd>⌘ ⇧ N</kbd> / <kbd>Ctrl ⇧N</kbd></td><td>New folder</td></tr>
+            <tr><td><kbd>⌘ N</kbd> / <kbd>Ctrl N</kbd></td><td>New file</td></tr>
+            <tr><td><kbd>⌘ P</kbd> / <kbd>Ctrl P</kbd></td><td>Add pane</td></tr>
+            <tr><td><kbd>⌘ `</kbd> / <kbd>Ctrl `</kbd></td><td>Open Settings</td></tr>
+            <tr><td><kbd>⌘ L</kbd> / <kbd>Ctrl L</kbd></td><td>Open activity log</td></tr>
+            <tr><td><kbd>⌘ W</kbd> / <kbd>Ctrl W</kbd></td><td>Close current pane</td></tr>
+            <tr><td><kbd>⌘ I</kbd> / <kbd>Ctrl I</kbd></td><td>Open Properties for selected item</td></tr>
+            <tr><td><kbd>⌘ ⇧ C</kbd> / <kbd>Ctrl ⇧ C</kbd></td><td>Compare selected item(s)</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="docs-section">
+        <h3>Hidden / Junk Files</h3>
+        <p>
+          Both macOS and Windows silently leave bookkeeping files behind on shared or removable drives —
+          they're never part of what you actually transferred, so Conduit excludes them from item counts
+          (labeled &quot;Hidden Files&quot; in Properties/Compare) but always includes their bytes in size
+          totals, so Size always matches what Finder/Explorer/Wasabi shows.
+        </p>
+        <p>
+          Whether something counts as <em>hidden</em> (vs. just junk) depends on the OS doing the counting —
+          macOS hides purely by leading-dot naming (which is exactly what Finder's own item count does, so
+          Conduit matches it directly). Windows only hides a file via an explicit hidden attribute bit, which
+          Conduit can't reliably read across platforms — so on Windows, none of these are treated as hidden
+          in the count (they're still flagged as junk, just counted as ordinary visible files/folders).
+        </p>
+        <table className="docs-table">
+          <thead><tr><th>File / Folder</th><th>Hidden on macOS</th><th>Hidden on Windows</th></tr></thead>
+          <tbody>
+            <tr><td><code>.DS_Store</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>._filename</code> (AppleDouble sidecar)</td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>.Spotlight-V100</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>.Trashes</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>.fseventsd</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>.TemporaryItems</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>.VolumeIcon.icns</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>.apdisk</code></td><td>Yes</td><td>No</td></tr>
+            <tr><td><code>Thumbs.db</code></td><td>No</td><td>No</td></tr>
+            <tr><td><code>ehthumbs.db</code></td><td>No</td><td>No</td></tr>
+            <tr><td><code>desktop.ini</code></td><td>No</td><td>No</td></tr>
+            <tr><td><code>System Volume Information</code></td><td>No</td><td>No</td></tr>
+            <tr><td><code>$RECYCLE.BIN</code></td><td>No</td><td>No</td></tr>
           </tbody>
         </table>
       </section>

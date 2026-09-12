@@ -1,5 +1,5 @@
 import type { Readable } from 'stream'
-import type { Connection, FileEntry, ListResult, ConnectionTestResult, FolderTreeResult } from '@shared/types'
+import type { Connection, FileEntry, ListResult, ConnectionTestResult, FolderTreeResult, FolderSizeResult } from '@shared/types'
 
 /**
  * A Provider abstracts one connection type (local disk, S3, later SFTP/SMB)
@@ -98,7 +98,7 @@ export interface Provider {
    * Return the total byte size of all objects under a folder path, plus the
    * most-recent modification date among them. Null when not supported.
    */
-  folderSize?(path: string): Promise<{ size: number; latestModified: string | null } | null>
+  folderSize?(path: string): Promise<FolderSizeResult | null>
 
   /**
    * Build a full recursive file tree for a folder. Providers with efficient

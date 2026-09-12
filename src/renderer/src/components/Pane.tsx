@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Connection } from '@shared/types'
+import type { Connection, FolderSizeResult } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { useStore, type PaneState } from '../store'
 import { formatBytes } from '../lib/format'
@@ -44,7 +44,7 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 	const [showFilter, setShowFilter] = useState(false)
 	const [filter, setFilter] = useState('')
 	const filterRef = useRef<HTMLInputElement>(null)
-	const [folderSizes, setFolderSizes] = useState<Record<string, { size: number; latestModified: string | null } | 'loading' | null>>({})
+	const [folderSizes, setFolderSizes] = useState<Record<string, FolderSizeResult | 'loading' | null>>({})
 
 	// Reset the filter + folder sizes whenever the pane navigates or switches connection.
 	useEffect(() => {
@@ -195,10 +195,42 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 		return conn ? connColor(conn.type) : null
 	}, [pane.connectionId, connections])
 
+	// ⌘↑ / ⌘F / ⌘R / ⌘⇧N / ⌘N / ⌘W for this pane — see Help & Docs > Keyboard Shortcuts.
+	function onPaneKeyDown(e: React.KeyboardEvent): void {
+		const meta = e.metaKey || e.ctrlKey
+		if (!meta) return
+		const target = e.target as HTMLElement
+		const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+		if (!typing && (e.key === 'w' || e.key === 'W') && !isOnly) {
+			e.preventDefault()
+			removePane(pane.id)
+			return
+		}
+		if (!connection) return
+		if (e.key === 'ArrowUp') {
+			e.preventDefault()
+			navigateUp(pane.id)
+		} else if (!typing && (e.key === 'f' || e.key === 'F')) {
+			e.preventDefault()
+			setShowFilter(true)
+			setTimeout(() => filterRef.current?.focus(), 0)
+		} else if (!typing && (e.key === 'r' || e.key === 'R')) {
+			e.preventDefault()
+			refreshPane(pane.id)
+		} else if (!typing && e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+			e.preventDefault()
+			void newFolder()
+		} else if (!typing && (e.key === 'n' || e.key === 'N')) {
+			e.preventDefault()
+			void newFile()
+		}
+	}
+
 	return (
 		<div
 			className={`pane ${dragOver ? 'drop-target' : ''} ${reorderOver ? 'reorder-target' : ''}`}
 			style={paneColor ? { '--pane-accent': paneColor } as React.CSSProperties : undefined}
+			onKeyDown={onPaneKeyDown}
 			onDragOver={(e) => {
 				// A pane-reorder drag takes priority over a file-transfer drag.
 				const paneDrag = getPaneDrag()
@@ -271,12 +303,12 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 						<span style={{ marginLeft: 'auto', color: 'var(--text-faint)' }}>▾</span>
 					</div>
 
-					<button className="iconbtn" title="Up one level" disabled={!connection} onClick={() => navigateUp(pane.id)}>
+					<button className="iconbtn" title="Up one level (⌘↑)" disabled={!connection} onClick={() => navigateUp(pane.id)}>
 						<span className="material-symbols-outlined">arrow_upward</span>
 					</button>
 					<button
 						className={`iconbtn ${showFilter ? 'active' : ''}`}
-						title="Search / filter"
+						title="Search / filter (⌘F)"
 						disabled={!connection}
 						onClick={() => {
 							setShowFilter((v) => !v)
@@ -285,13 +317,13 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 					>
 						<span className="material-symbols-outlined">search</span>
 					</button>
-					<button className="iconbtn refresh-btn" title="Refresh" disabled={!connection} onClick={() => refreshPane(pane.id)}>
+					<button className="iconbtn refresh-btn" title="Refresh (⌘R)" disabled={!connection} onClick={() => refreshPane(pane.id)}>
 						<span className="material-symbols-outlined">refresh</span>
 					</button>
-					<button className="iconbtn" title="New folder" disabled={!connection} onClick={newFolder}>
+					<button className="iconbtn" title="New folder (⌘⇧N)" disabled={!connection} onClick={newFolder}>
 						<span className="material-symbols-outlined">create_new_folder</span>
 					</button>
-					<button className="iconbtn" title="New file" disabled={!connection} onClick={newFile}>
+					<button className="iconbtn" title="New file (⌘N)" disabled={!connection} onClick={newFile}>
 						<span className="material-symbols-outlined">note_add</span>
 					</button>
 					{connection && (
@@ -304,7 +336,7 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 						</button>
 					)}
 					{!isOnly && (
-						<button className="iconbtn" title="Close pane" onClick={() => removePane(pane.id)}>
+						<button className="iconbtn" title="Close pane (⌘W)" onClick={() => removePane(pane.id)}>
 							<span className="material-symbols-outlined">close</span>
 						</button>
 					)}

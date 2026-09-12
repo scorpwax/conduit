@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry, TreeNode, FolderTreeResult, FolderContentsResult, VerifyResult } from '@shared/types'
+import type { FileEntry, TreeNode, FolderTreeResult, FolderContentsResult, VerifyResult, FileListColumnKey, FolderSizeResult } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
 import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
 import type { PaneState } from '../store'
@@ -15,17 +15,120 @@ import { FolderBrowserModal } from './FolderBrowserModal'
 interface Props {
   pane: PaneState
   filter: string
-  folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
-  setFolderSizes: React.Dispatch<React.SetStateAction<Record<string, { size: number; latestModified: string | null } | 'loading' | null>>>
+  folderSizes: Record<string, FolderSizeResult | 'loading' | null>
+  setFolderSizes: React.Dispatch<React.SetStateAction<Record<string, FolderSizeResult | 'loading' | null>>>
   fetchFolderSize: (connectionId: string, path: string) => void
 }
 
 type SortKey = 'name' | 'size' | 'type' | 'modified'
 type SortDir = 'asc' | 'desc'
 
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.')
+  return i === -1 ? '' : name.slice(i + 1).toLowerCase()
+}
+
+/** Quick-filter chips for common production media types. */
+const MEDIA_TYPE_CHIPS: { label: string; exts: string[] }[] = [
+  { label: 'BRAW', exts: ['braw'] },
+  { label: 'R3D', exts: ['r3d'] },
+  { label: 'MOV', exts: ['mov'] },
+  { label: 'WAV', exts: ['wav'] }
+]
+
+/** Toggleable explorer columns (beyond Name, which is always shown). */
+const COLUMN_DEFS: Record<FileListColumnKey, { label: string; sortKey?: SortKey; defaultWidth: number }> = {
+  size: { label: 'Size', sortKey: 'size', defaultWidth: 92 },
+  type: { label: 'Type', sortKey: 'type', defaultWidth: 84 },
+  modified: { label: 'Modified', sortKey: 'modified', defaultWidth: 150 },
+  created: { label: 'Created', defaultWidth: 150 },
+  path: { label: 'Path', defaultWidth: 220 },
+  storageClass: { label: 'Storage Class', defaultWidth: 120 },
+  etag: { label: 'ETag', defaultWidth: 160 }
+}
+
 interface Row {
   entry: FileEntry
   depth: number
+}
+
+type FolderSizeMap = Record<string, FolderSizeResult | 'loading' | null>
+
+let measureCanvasCtx: CanvasRenderingContext2D | null = null
+function measureTextWidth(text: string, font: string): number {
+  if (!measureCanvasCtx) {
+    measureCanvasCtx = document.createElement('canvas').getContext('2d')
+  }
+  if (!measureCanvasCtx) return text.length * 7
+  measureCanvasCtx.font = font
+  return measureCanvasCtx.measureText(text).width
+}
+
+/** Plain-string version of a cell's content, for width measurement (autofit). */
+function cellString(
+  key: FileListColumnKey,
+  entry: FileEntry,
+  isDir: boolean,
+  connectionId: string | null,
+  folderSizes: FolderSizeMap
+): string {
+  const fsz = connectionId ? folderSizes[connPathKey(connectionId, entry.path)] : undefined
+  switch (key) {
+    case 'size':
+      if (isDir) return fsz && typeof fsz === 'object' ? formatBytes(fsz.size) : '—'
+      return formatBytes(entry.size)
+    case 'type':
+      return fileType(entry.name, entry.kind)
+    case 'modified':
+      if (entry.modified) return formatDate(entry.modified)
+      if (isDir && fsz && typeof fsz === 'object' && fsz.latestModified) return formatDate(fsz.latestModified)
+      return '—'
+    case 'created':
+      return entry.created ? formatDate(entry.created) : '—'
+    case 'path':
+      return entry.path
+    case 'storageClass':
+      return entry.storageClass ?? '—'
+    case 'etag':
+      return entry.etag ?? '—'
+    default:
+      return ''
+  }
+}
+
+function renderCell(
+  key: FileListColumnKey,
+  entry: FileEntry,
+  isDir: boolean,
+  connectionId: string | null,
+  folderSizes: FolderSizeMap
+): React.ReactNode {
+  const fsz = connectionId ? folderSizes[connPathKey(connectionId, entry.path)] : undefined
+  switch (key) {
+    case 'size':
+      if (isDir) {
+        if (fsz === 'loading') return '…'
+        if (fsz && typeof fsz === 'object') return formatBytes(fsz.size)
+        return <span style={{ color: 'var(--text-faint)', cursor: 'pointer' }}>—</span>
+      }
+      return formatBytes(entry.size)
+    case 'type':
+      return fileType(entry.name, entry.kind)
+    case 'modified':
+      if (entry.modified) return formatDate(entry.modified)
+      if (isDir && fsz && typeof fsz === 'object' && fsz.latestModified) return formatDate(fsz.latestModified)
+      return '—'
+    case 'created':
+      return entry.created ? formatDate(entry.created) : '—'
+    case 'path':
+      return entry.path
+    case 'storageClass':
+      return entry.storageClass ?? '—'
+    case 'etag':
+      return entry.etag ?? '—'
+    default:
+      return null
+  }
 }
 
 export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolderSize }: Props): JSX.Element {
@@ -44,8 +147,96 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   const connections = useStore((s) => s.connections)
   const refreshPane = useStore((s) => s.refreshPane)
 
+  const settings = useStore((s) => s.settings)
   const [dropDir, setDropDir] = useState<string | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'name', dir: 'asc' })
+  const [extFilter, setExtFilter] = useState<Set<string>>(new Set())
+  const [foldersOnly, setFoldersOnly] = useState(false)
+
+  // Which metadata columns show (beyond Name), and their widths — widths are
+  // shared across all panes/connections and persisted, same as font scale.
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('conduit.columnWidths') : null
+      return raw ? JSON.parse(raw) : {}
+    } catch {
+      return {}
+    }
+  })
+  const columns = useMemo(
+    () => (settings?.visibleColumns ?? ['size', 'type', 'modified']).map((key) => ({ key, ...COLUMN_DEFS[key] })),
+    [settings]
+  )
+  const NAME_DEFAULT_WIDTH = 220
+  function widthFor(key: string): number {
+    if (key === 'name') return colWidths.name ?? NAME_DEFAULT_WIDTH
+    return colWidths[key] ?? COLUMN_DEFS[key as FileListColumnKey].defaultWidth
+  }
+  function persistColWidths(w: Record<string, number>): void {
+    try { localStorage.setItem('conduit.columnWidths', JSON.stringify(w)) } catch { /* ignore */ }
+  }
+  // Name's own width is now a resizable floor (minmax keeps it flexible to
+  // fill extra pane width, but never shrinks below what the user set) — the
+  // header and every row apply this identical grid to a shared-width wrapper
+  // (.file-table) rather than each computing their own min-width
+  // independently, so they can never drift out of sync at the scrolled-right edge.
+  const gridStyle = useMemo(
+    () => ({ gridTemplateColumns: [`minmax(${widthFor('name')}px, 1fr)`, ...columns.map((c) => `${widthFor(c.key)}px`)].join(' ') }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columns, colWidths]
+  )
+  const tableMinWidth = useMemo(
+    () => widthFor('name') + columns.reduce((sum, c) => sum + widthFor(c.key), 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columns, colWidths]
+  )
+  const resizeInfo = useRef<{ key: string; startX: number; startWidth: number } | null>(null)
+  function startColumnResize(e: React.MouseEvent, key: string): void {
+    e.preventDefault()
+    e.stopPropagation()
+    resizeInfo.current = { key, startX: e.clientX, startWidth: widthFor(key) }
+    document.body.style.cursor = 'col-resize'
+    const onMove = (ev: MouseEvent): void => {
+      const info = resizeInfo.current
+      if (!info) return
+      const next = Math.max(50, info.startWidth + (ev.clientX - info.startX))
+      setColWidths((w) => ({ ...w, [info.key]: next }))
+    }
+    const onUp = (): void => {
+      resizeInfo.current = null
+      document.body.style.cursor = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      setColWidths((w) => {
+        persistColWidths(w)
+        return w
+      })
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  // Double-click a column's resize handle to fit its width to the widest
+  // currently-visible content (header label included), like a spreadsheet.
+  function autofitColumn(key: string): void {
+    const font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+    const label = key === 'name' ? 'Name' : COLUMN_DEFS[key as FileListColumnKey].label
+    let maxWidth = measureTextWidth(label.toUpperCase(), `700 ${font}`)
+    for (const { entry } of rows) {
+      const isDir = entry.kind === 'directory'
+      const text = key === 'name' ? entry.name : cellString(key as FileListColumnKey, entry, isDir, pane.connectionId, folderSizes)
+      const w = measureTextWidth(text, font)
+      if (w > maxWidth) maxWidth = w
+    }
+    // Extra room for the icon/disclosure triangle on Name, or just cell padding/border elsewhere.
+    const padding = key === 'name' ? 56 : 32
+    const next = Math.max(50, Math.min(600, Math.round(maxWidth + padding)))
+    setColWidths((w) => {
+      const nw = { ...w, [key]: next }
+      persistColWidths(nw)
+      return nw
+    })
+  }
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [childCache, setChildCache] = useState<Record<string, FileEntry[]>>({})
@@ -101,6 +292,8 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
   useEffect(() => {
     setExpanded(new Set())
     setChildCache({})
+    setExtFilter(new Set())
+    setFoldersOnly(false)
   }, [pane.path, pane.connectionId])
 
   // Auto-fetch folder sizes for local/SMB connections (both use real OS paths).
@@ -134,6 +327,11 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       const q = filter.trim().toLowerCase()
       let out = showHidden ? list : list.filter((e) => !e.name.startsWith('.'))
       if (q) out = out.filter((e) => e.name.toLowerCase().includes(q))
+      if (foldersOnly) {
+        out = out.filter((e) => e.kind === 'directory')
+      } else if (extFilter.size > 0) {
+        out = out.filter((e) => e.kind === 'directory' || extFilter.has(extOf(e.name)))
+      }
       const mult = sort.dir === 'asc' ? 1 : -1
       return [...out].sort((a, b) => {
         if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1
@@ -145,7 +343,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
         return cmp * mult
       })
     },
-    [filter, sort, showHidden]
+    [filter, sort, showHidden, extFilter, foldersOnly]
   )
 
   // Flatten the visible tree into rows with depth, expanding open folders.
@@ -281,6 +479,10 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
       if (toClose.length > 0) {
         setExpanded((prev) => { const next = new Set(prev); toClose.forEach((d) => next.delete(d.path)); return next })
       }
+    } else if (meta && e.shiftKey && (e.key === 'c' || e.key === 'C') && pane.selection.length > 0) {
+      e.preventDefault()
+      const first = rows.find((r) => r.entry.path === pane.selection[0])?.entry
+      if (first) doCompare(first)
     } else if (meta && (e.key === 'c' || e.key === 'C') && pane.selection.length > 0) {
       e.preventDefault()
       const first = rows.find((r) => r.entry.path === pane.selection[0])?.entry
@@ -288,6 +490,14 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     } else if (meta && (e.key === 'v' || e.key === 'V') && clipboard) {
       e.preventDefault()
       void pasteInto(pane.id)
+    } else if (meta && (e.key === 'i' || e.key === 'I') && pane.selection.length > 0) {
+      e.preventDefault()
+      const first = rows.find((r) => r.entry.path === pane.selection[0])?.entry
+      if (first) doGetInfo(first)
+    } else if (meta && (e.key === 'd' || e.key === 'D') && pane.selection.length > 0) {
+      e.preventDefault()
+      const first = rows.find((r) => r.entry.path === pane.selection[0])?.entry
+      if (first) void doDuplicate(first)
     } else if (meta && (e.key === 'a' || e.key === 'A')) {
       e.preventDefault()
       setSelection(pane.id, rows.map((r) => r.entry.path))
@@ -496,7 +706,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     items.push({ label: 'Deselect All', disabled: pane.selection.length === 0, onClick: () => setSelection(pane.id, []) })
     items.push({ label: 'Copy', onClick: () => doCopy(entry) })
     items.push({ label: 'Paste', disabled: !clipboard, onClick: () => void pasteInto(pane.id) })
-    items.push({ label: 'Duplicate', onClick: () => void doDuplicate(entry) })
+    items.push({ label: 'Duplicate (⌘D)', onClick: () => void doDuplicate(entry) })
     items.push({ label: 'Rename…', onClick: () => void doRename(entry) })
     items.push({
       label: 'Batch Rename…',
@@ -515,9 +725,9 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
     const crossPaneTotal = panes.reduce((n, p) => n + (p.selection.length > 0 && p.connectionId ? p.selection.length : 0), 0)
     const samePaneSel = pane.selection.includes(entry.path) ? pane.selection : [entry.path]
     if (crossPaneTotal >= 2 || samePaneSel.length >= 2) {
-      items.push({ label: 'Compare', onClick: () => doCompare(entry) })
+      items.push({ label: 'Compare (⌘⇧C)', onClick: () => doCompare(entry) })
     }
-    items.push({ label: 'Properties', onClick: () => doGetInfo(entry) })
+    items.push({ label: 'Properties (⌘I)', onClick: () => doGetInfo(entry) })
     if (entry.kind === 'directory') {
       items.push({ label: 'File Tree…', onClick: () => doViewTree(entry) })
     }
@@ -793,13 +1003,18 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                     `${infoContents.folders.toLocaleString()} Folders`
                   ]
                   if (infoContents.hiddenJunk > 0) {
-                    parts.push(`${infoContents.hiddenJunk.toLocaleString()} Hidden File${infoContents.hiddenJunk !== 1 ? 's' : ''}`)
+                	parts.push(`${infoContents.hiddenJunk.toLocaleString()} Hidden File${infoContents.hiddenJunk !== 1 ? 's' : ''}`)
                   }
                   return (
                     <FileInfoRow
                       label="Item Count"
                       value={`${parts[0]} — ${parts.slice(1).join(' • ')}`}
-                      note={infoContents.hiddenJunk > 0 ? 'Hidden files not included in final item count' : undefined}
+                      note={
+                        infoContents.hiddenJunk > 0
+							? `Hidden Files are not counted in the Items Total.`
+                          // ? `Excludes ${infoContents.hiddenJunk.toLocaleString()} OS file${infoContents.hiddenJunk !== 1 ? 's' : ''} (.DS_Store, ._*, Thumbs.db). Finder/Explorer count these, so their totals may be higher — size above already matches them.`
+                          : undefined
+                      }
                     />
                   )
                 })()}
@@ -883,19 +1098,64 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
         </div>
       )}
 
-      <div className="file-head">
-        <div className="sortable" onClick={() => toggleSort('name')}>
+      <div className="filetype-chips">
+        <button
+          className={`filetype-chip ${foldersOnly ? 'active' : ''}`}
+          onClick={() => setFoldersOnly((v) => !v)}
+        >
+          Folders
+        </button>
+        {MEDIA_TYPE_CHIPS.map(({ label, exts }) => {
+          const active = !foldersOnly && exts.every((x) => extFilter.has(x))
+          return (
+            <button
+              key={label}
+              className={`filetype-chip ${active ? 'active' : ''}`}
+              disabled={foldersOnly}
+              onClick={() => {
+                setExtFilter((prev) => {
+                  const next = new Set(prev)
+                  if (active) exts.forEach((x) => next.delete(x))
+                  else exts.forEach((x) => next.add(x))
+                  return next
+                })
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+        {(extFilter.size > 0 || foldersOnly) && (
+          <button className="filetype-chip clear" onClick={() => { setExtFilter(new Set()); setFoldersOnly(false) }}>
+            Clear
+          </button>
+        )}
+      </div>
+
+      <div className="file-table" style={{ minWidth: tableMinWidth }}>
+      <div className="file-head" style={gridStyle}>
+        <div className="sortable col-resizable" onClick={() => toggleSort('name')}>
           Name{caret('name')}
+          <span
+            className={`col-resize-handle ${columns.length === 0 ? 'col-resize-handle-last' : ''}`}
+            onMouseDown={(e) => startColumnResize(e, 'name')}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => { e.stopPropagation(); autofitColumn('name') }}
+            title="Drag to resize · double-click to fit content"
+          />
         </div>
-        <div className="sortable" onClick={() => toggleSort('size')}>
-          Size{caret('size')}
-        </div>
-        <div className="sortable" onClick={() => toggleSort('type')}>
-          Type{caret('type')}
-        </div>
-        <div className="sortable" onClick={() => toggleSort('modified')}>
-          Modified{caret('modified')}
-        </div>
+        {columns.map((col, i) => (
+          <div key={col.key} className="sortable col-resizable" onClick={() => col.sortKey && toggleSort(col.sortKey)}>
+            {col.label}{col.sortKey ? caret(col.sortKey) : ''}
+            <span
+              className={`col-resize-handle ${i === columns.length - 1 ? 'col-resize-handle-last' : ''}`}
+              onMouseDown={(e) => startColumnResize(e, col.key)}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => { e.stopPropagation(); autofitColumn(col.key) }}
+              title="Drag to resize · double-click to fit content"
+            />
+          </div>
+        ))}
       </div>
 
       {rows.length === 0 ? (
@@ -912,6 +1172,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
               key={entry.path}
               className={[
                 'file-row',
+                i % 2 === 1 ? 'file-row-alt' : '',
                 isDir ? 'dir' : '',
                 selected.has(entry.path) ? 'selected' : '',
                 entry.hidden ? 'hidden' : '',
@@ -942,6 +1203,7 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
               }
               onDragLeave={isDir ? () => setDropDir(null) : undefined}
               onDrop={isDir ? (e) => onDirDrop(e, entry) : undefined}
+              style={gridStyle}
             >
               <div className="file-name" style={{ paddingLeft: depth * 16 }}>
                 {isDir ? (
@@ -964,33 +1226,29 @@ export function FileList({ pane, filter, folderSizes, setFolderSizes, fetchFolde
                 )}
                 <span className="label">{entry.name}{busyVerb ? ` — ${busyVerb}…` : ''}</span>
               </div>
-              <div
-                className="file-size"
-                onClick={isDir ? (e) => { e.stopPropagation(); if (pane.connectionId) fetchFolderSize(pane.connectionId, entry.path) } : undefined}
-                title={isDir && pane.connectionId && !folderSizes[connPathKey(pane.connectionId, entry.path)] ? 'Click to calculate size' : undefined}
-              >
-                {isDir
-                  ? (() => {
-                      const fsz = pane.connectionId ? folderSizes[connPathKey(pane.connectionId, entry.path)] : undefined
-                      if (fsz === 'loading') return '…'
-                      if (fsz && typeof fsz === 'object') return formatBytes(fsz.size)
-                      return <span style={{ color: 'var(--text-faint)', cursor: 'pointer' }} title="Click to calculate size">—</span>
-                    })()
-                  : formatBytes(entry.size)}
-              </div>
-              <div className="file-type">{fileType(entry.name, entry.kind)}</div>
-              <div className="file-mod">{(() => {
-                if (entry.modified) return formatDate(entry.modified)
-                if (isDir && pane.connectionId) {
-                  const fsz = folderSizes[connPathKey(pane.connectionId, entry.path)]
-                  if (fsz && typeof fsz === 'object' && fsz.latestModified) return formatDate(fsz.latestModified)
-                }
-                return '—'
-              })()}</div>
+              {columns.map((col) => (
+                <div
+                  key={col.key}
+                  className={`file-col file-col-${col.key}`}
+                  onClick={
+                    col.key === 'size' && isDir
+                      ? (e) => { e.stopPropagation(); if (pane.connectionId) fetchFolderSize(pane.connectionId, entry.path) }
+                      : undefined
+                  }
+                  title={
+                    col.key === 'size' && isDir && pane.connectionId && !folderSizes[connPathKey(pane.connectionId, entry.path)]
+                      ? 'Click to calculate size'
+                      : undefined
+                  }
+                >
+                  {renderCell(col.key, entry, isDir, pane.connectionId, folderSizes)}
+                </div>
+              ))}
             </div>
           )
         })
       )}
+      </div>
 
       {moveToEntry && pane.connectionId && (
         <MoveToModal
@@ -1227,7 +1485,7 @@ function parseMultipartEtag(value: string): number | null {
 // ── Compare Modal ─────────────────────────────────────────────────────────────
 function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClose }: {
   items: Array<{ entry: FileEntry; connectionId: string }>
-  folderSizes: Record<string, { size: number; latestModified: string | null } | 'loading' | null>
+  folderSizes: Record<string, FolderSizeResult | 'loading' | null>
   fetchFolderSize: (connectionId: string, path: string) => void
   onClose: () => void
 }): JSX.Element {
@@ -1237,6 +1495,7 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
   const [checksums, setChecksums] = React.useState<Record<string, string | null | 'loading'>>({})
   const [contents, setContents] = React.useState<Record<string, FolderContentsResult | null | 'loading'>>({})
   const [addingItem, setAddingItem] = React.useState(false)
+  const [hoverRow, setHoverRow] = React.useState<string | null>(null)
   const [addConnId, setAddConnId] = React.useState(connections[0]?.id ?? '')
   const [pendingAddPath, setPendingAddPath] = React.useState('')
   // Keys that were recomputed as a multipart-style hash (rather than a plain
@@ -1356,6 +1615,21 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
   })
   const allSizesLoaded = sizes.every((s) => s !== null)
   const sizesMatch = allSizesLoaded && sizes.every((s) => s === sizes[0])
+
+  // Bytes attributable to OS-bookkeeping files (.DS_Store, ._*, Thumbs.db) —
+  // macOS/Windows silently regenerate these just from a folder being opened
+  // in Finder/Explorer on a foreign filesystem, so a byte gap made up
+  // entirely of junk isn't a real transfer problem. Surfaced as a note
+  // below the Bytes field rather than folded into the main match check, so
+  // a genuine gap still shows as a mismatch.
+  const junkBytesByItem = items.map(({ entry: e, connectionId }) => {
+    if (e.kind === 'file') return 0
+    const fsz = folderSizes[connPathKey(connectionId, e.path)]
+    return (fsz && typeof fsz === 'object') ? fsz.junkBytes : 0
+  })
+  const sizesExclJunk = sizes.map((s, i) => (s === null ? null : s - junkBytesByItem[i]))
+  const sizesMatchExclJunk = allSizesLoaded && sizesExclJunk.every((s) => s === sizesExclJunk[0])
+  const onlyJunkBytesDiffer = allSizesLoaded && !sizesMatch && sizesMatchExclJunk
 
   const itemCounts = items.map(({ entry: e, connectionId }) => {
     if (e.kind === 'file') return null
@@ -1481,6 +1755,13 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
           </div>
         </div>
 
+        {onlyJunkBytesDiffer && (
+          <div className="compare-note" style={{ padding: '10px 20px' }}>
+            ✓ Byte totals differ only by incidental OS bookkeeping files (.DS_Store, ._*, Thumbs.db —
+            regenerated just by opening a folder in Finder/Explorer on a foreign filesystem). Real content matches.
+          </div>
+        )}
+
         {/* Legend / summary */}
         <div className="compare-summary">
           <span className="compare-legend-label">Legend:</span>
@@ -1605,107 +1886,148 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
           </div>
         )}
 
-        {/* Per-item columns */}
-        <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${items.length}, 1fr)` }}>
+        {/* Spreadsheet-style comparison table — one row per field, one column
+            per item, so matching values line up on the same line instead of
+            each item's fields stacking independently. */}
+        <div className="compare-table" style={{ gridTemplateColumns: `160px repeat(${items.length}, 1fr)` }}>
+          <div className="compare-th" />
           {items.map(({ entry: e, connectionId }) => {
-            const key = connPathKey(connectionId, e.path)
             const conn = connections.find((c) => c.id === connectionId) ?? null
-            const connName = conn?.name ?? connectionId
-            const fsz = folderSizes[key]
-            const itemSize = e.kind === 'file'
-              ? (stats[key]?.size ?? e.size ?? 0)
-              : (fsz && typeof fsz === 'object') ? fsz.size : null
-            const itemCount = contents[key]
-            const checksum = checksums[key]
-            const webUrl = conn ? buildWebUrl(conn, e.path) : null
-
             return (
-              <div key={`${connectionId}:${e.path}`} className="compare-col">
-                <div className="compare-col-conn">{connName}</div>
-                <div className="compare-col-name" title={e.path}>{e.name}</div>
+              <div key={`${connectionId}:${e.path}`} className="compare-th">
+                <div className="compare-th-conn">{conn?.name ?? connectionId}</div>
+                <div className="compare-th-name" title={e.path}>{e.name}</div>
+              </div>
+            )
+          })}
 
-                <CompareField label="Kind" matchIcon={matchIcon(kindsMatch, true)}>
-                  {e.kind === 'directory' ? 'Folder' : 'File'}
-                </CompareField>
+          <CompareRow rowKey="kind" label="Kind" matchIcon={matchIcon(kindsMatch, true)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+            values={items.map(({ entry: e }) => e.kind === 'directory' ? 'Folder' : 'File')} />
 
-                <CompareField label="Type" matchIcon={matchIcon(typesMatch, true)}>
-                  {fileType(e.name, e.kind)}
-                </CompareField>
+          <CompareRow rowKey="type" label="Type" matchIcon={matchIcon(typesMatch, true)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+            values={items.map(({ entry: e }) => fileType(e.name, e.kind))} />
 
-                <CompareField label="Path" mono>
-                  {e.path}
-                </CompareField>
+          <CompareRow rowKey="path" label="Path" mono hoverRow={hoverRow} setHoverRow={setHoverRow}
+            values={items.map(({ entry: e }) => e.path)} />
 
-                {webUrl && (
-                  <CompareField label="URL" mono>
-                    {webUrl}
-                  </CompareField>
-                )}
+          {items.some(({ entry: e, connectionId }) => {
+            const conn = connections.find((c) => c.id === connectionId) ?? null
+            return conn && buildWebUrl(conn, e.path)
+          }) && (
+            <CompareRow rowKey="url" label="URL" mono hoverRow={hoverRow} setHoverRow={setHoverRow}
+              values={items.map(({ entry: e, connectionId }) => {
+                const conn = connections.find((c) => c.id === connectionId) ?? null
+                return (conn && buildWebUrl(conn, e.path)) || '—'
+              })} />
+          )}
 
-                <CompareField label="Size" matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
-                  {itemSize === null ? 'Calculating…' : (e.kind === 'file' && itemSize === 0 && stats[key] === undefined) ? 'Loading…' : itemSize === 0 ? '—' : formatBytes(itemSize)}
-                </CompareField>
+          <CompareRow rowKey="size" label="Size" matchIcon={matchIcon(sizesMatch, allSizesLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+            values={items.map(({ entry: e, connectionId }) => {
+              const key = connPathKey(connectionId, e.path)
+              const fsz = folderSizes[key]
+              const itemSize = e.kind === 'file' ? (stats[key]?.size ?? e.size ?? 0) : (fsz && typeof fsz === 'object') ? fsz.size : null
+              return itemSize === null ? 'Calculating…' : (e.kind === 'file' && itemSize === 0 && stats[key] === undefined) ? 'Loading…' : itemSize === 0 ? '—' : formatBytes(itemSize)
+            })} />
 
-                <CompareField label="Bytes" mono matchIcon={matchIcon(sizesMatch, allSizesLoaded)}>
+          <CompareRow rowKey="bytes" label="Bytes" mono matchIcon={matchIcon(sizesMatch, allSizesLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+            values={items.map(({ entry: e, connectionId }, i) => {
+              const key = connPathKey(connectionId, e.path)
+              const fsz = folderSizes[key]
+              const itemSize = e.kind === 'file' ? (stats[key]?.size ?? e.size ?? 0) : (fsz && typeof fsz === 'object') ? fsz.size : null
+              const junk = junkBytesByItem[i] ?? 0
+              return (
+                <>
                   {itemSize === null ? '—' : (e.kind === 'file' && itemSize === 0 && stats[key] === undefined) ? 'Loading…' : itemSize.toLocaleString()}
-                </CompareField>
+                  {junk > 0 && <div className="compare-note">Includes {formatBytes(junk)} of OS files (.DS_Store, ._*, Thumbs.db)</div>}
+                </>
+              )
+            })} />
 
-                <CompareField label="Modified" matchIcon={matchIcon(modMatch, allModLoaded)}>
-                  {(() => { const m = stats[key]?.modified ?? e.modified; return m ? formatDate(m) : stats[key] === undefined ? 'Loading…' : '—' })()}
-                </CompareField>
+          <CompareRow rowKey="modified" label="Modified" matchIcon={matchIcon(modMatch, allModLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+            values={items.map(({ entry: e, connectionId }) => {
+              const key = connPathKey(connectionId, e.path)
+              const m = stats[key]?.modified ?? e.modified
+              return m ? formatDate(m) : stats[key] === undefined ? 'Loading…' : '—'
+            })} />
 
-                {e.kind === 'directory' && <>
-                  <CompareField label="Total Items" matchIcon={matchIcon(countsMatch, allCountsLoaded)}>
-                    {!itemCount || itemCount === 'loading'
-                      ? 'Counting…'
-                      : (itemCount.files + itemCount.folders).toLocaleString()}
+          {entries[0].kind === 'directory' && <>
+            <CompareRow rowKey="totalItems" label="Total Items" matchIcon={matchIcon(countsMatch, allCountsLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+              values={items.map(({ entry: e, connectionId }) => {
+                const itemCount = contents[connPathKey(connectionId, e.path)]
+                return (
+                  <>
+                    {!itemCount || itemCount === 'loading' ? 'Counting…' : (itemCount.files + itemCount.folders).toLocaleString()}
                     {itemCount && itemCount !== 'loading' && itemCount.hiddenJunk > 0 && (
-                      <>
-                        {' '}<span className="compare-note">• {itemCount.hiddenJunk.toLocaleString()} Hidden File{itemCount.hiddenJunk !== 1 ? 's' : ''}</span>
-                        <div className="compare-note">Hidden files not included in final item count</div>
-                      </>
+                      <div className="compare-note">
+                        {itemCount.hiddenJunk.toLocaleString()} OS-hidden file{itemCount.hiddenJunk !== 1 ? 's' : ''} excluded (matches Finder/Explorer)
+                      </div>
                     )}
-                  </CompareField>
-                  <CompareField label="Files" matchIcon={matchIcon(filesMatch, allFilesLoaded)}>
-                    {!itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.files.toLocaleString()}
-                  </CompareField>
-                  <CompareField label="Folders" matchIcon={matchIcon(foldersMatch, allFoldersLoaded)}>
-                    {!itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.folders.toLocaleString()}
-                  </CompareField>
-                </>}
+                  </>
+                )
+              })} />
+            <CompareRow rowKey="files" label="Files" matchIcon={matchIcon(filesMatch, allFilesLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+              values={items.map(({ entry: e, connectionId }) => {
+                const itemCount = contents[connPathKey(connectionId, e.path)]
+                return !itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.files.toLocaleString()
+              })} />
+            <CompareRow rowKey="folders" label="Folders" matchIcon={matchIcon(foldersMatch, allFoldersLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+              values={items.map(({ entry: e, connectionId }) => {
+                const itemCount = contents[connPathKey(connectionId, e.path)]
+                return !itemCount || itemCount === 'loading' ? 'Counting…' : itemCount.folders.toLocaleString()
+              })} />
+          </>}
 
-                {e.kind === 'file' && (
-                  <CompareField label="Checksum" mono matchIcon={matchIcon(checksumsMatch, checksumsLoaded)}>
+          {entries[0].kind === 'file' && (
+            <CompareRow rowKey="checksum" label="Checksum" mono matchIcon={matchIcon(checksumsMatch, checksumsLoaded)} hoverRow={hoverRow} setHoverRow={setHoverRow}
+              values={items.map(({ entry: e, connectionId }) => {
+                const key = connPathKey(connectionId, e.path)
+                const checksum = checksums[key]
+                return (
+                  <>
                     {checksum === 'loading' ? 'Loading…' : (checksum ?? 'N/A')}
                     {multipartVerified.has(key) && (
                       <span className="compare-note" title="This file was uploaded in multiple parts, so its checksum can't be compared directly — this hash was recomputed locally using the same part boundaries to verify it byte-for-byte.">
                         {' '}(verified via multipart hash)
                       </span>
                     )}
-                  </CompareField>
-                )}
-              </div>
-            )
-          })}
+                  </>
+                )
+              })} />
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function CompareField({ label, children, mono, matchIcon }: {
+function CompareRow({ rowKey, label, matchIcon, mono, values, hoverRow, setHoverRow }: {
+  rowKey: string
   label: string
-  children: React.ReactNode
-  mono?: boolean
   matchIcon?: JSX.Element | null
+  mono?: boolean
+  values: React.ReactNode[]
+  hoverRow: string | null
+  setHoverRow: React.Dispatch<React.SetStateAction<string | null>>
 }): JSX.Element {
+  const hovered = hoverRow === rowKey
+  const onEnter = (): void => setHoverRow(rowKey)
+  const onLeave = (): void => setHoverRow((r) => (r === rowKey ? null : r))
   return (
-    <div className="compare-field">
-      <div className="compare-field-header">
-        <span className="compare-field-label">{label}</span>
+    <>
+      <div className={`compare-row-label ${hovered ? 'row-hover' : ''}`} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+        <span>{label}</span>
         {matchIcon}
       </div>
-      <span className={mono ? 'compare-mono' : ''}>{children}</span>
-    </div>
+      {values.map((v, i) => (
+        <div
+          key={i}
+          className={`compare-cell ${mono ? 'compare-mono' : ''} ${hovered ? 'row-hover' : ''}`}
+          onMouseEnter={onEnter}
+          onMouseLeave={onLeave}
+        >
+          {v}
+        </div>
+      ))}
+    </>
   )
 }

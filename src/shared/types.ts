@@ -130,6 +130,19 @@ export interface Bookmark {
   path: string
 }
 
+export interface FolderSizeResult {
+  size: number
+  latestModified: string | null
+  /**
+   * Bytes within `size` attributable to OS-bookkeeping files (.DS_Store,
+   * AppleDouble `._*`, Thumbs.db, etc.) — informational only, so a byte
+   * mismatch caused purely by incidental metadata files (which macOS/Windows
+   * silently regenerate just from Finder/Explorer touching a folder on a
+   * foreign filesystem) can be told apart from an actual missing-content gap.
+   */
+  junkBytes: number
+}
+
 /** A single file or folder listing entry, normalized across all connection types. */
 export interface FileEntry {
   /** Display name (basename). */
@@ -142,6 +155,12 @@ export interface FileEntry {
   modified: string | null
   /** True for symlinks, hidden files, etc. — used for subtle UI treatment. */
   hidden?: boolean
+  /** ISO timestamp of file creation, when the provider/filesystem exposes it. */
+  created?: string | null
+  /** S3/Wasabi storage class (e.g. STANDARD, GLACIER). */
+  storageClass?: string | null
+  /** S3/Wasabi ETag — a lighter-weight integrity signal than a full checksum. */
+  etag?: string | null
 }
 
 export interface ListResult {
@@ -260,7 +279,12 @@ export interface AppSettings {
   lowBandwidthWarning?: boolean
   /** Throughput threshold (bytes/sec) below which the low-bandwidth warning appears. */
   lowBandwidthThresholdBps?: number
+  /** Which metadata columns show in the explorer file list, beyond Name (always shown). */
+  visibleColumns?: FileListColumnKey[]
 }
+
+/** Explorer file-list column keys, in default left-to-right order after Name. */
+export type FileListColumnKey = 'size' | 'type' | 'modified' | 'created' | 'path' | 'storageClass' | 'etag'
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
 
