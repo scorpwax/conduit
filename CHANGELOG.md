@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.29.1] — 2026-09-15
+
+### Fixed
+- **Uploads of files larger than ~312.5 GB failed with "Part number must be an integer between 1 and 10000, inclusive"** — Conduit's S3/Wasabi multipart upload used a fixed 32 MB part size, and S3 caps every multipart upload at 10,000 parts (32 MB × 10,000 ≈ 312.5 GB), so a large single-clip file (e.g. an MXF/RAW camera clip) exceeded the limit even though Wasabi itself supports objects up to 5 TB. Part size now scales up automatically for large files to stay within the 10,000-part cap, so uploads track Wasabi's real ceiling instead of an artificially low one. Multipart rename/copy (previously capped near 1.28 TB) and multipart checksum verification were fixed the same way, so verifying these large files still works correctly too.
+
 ## [1.29.0] — 2026-09-11
 
 ### Added

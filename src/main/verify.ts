@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
 import { getProvider } from './providers'
 import { isJunkEntryName } from './junkFiles'
-import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
+import { computeMultipartPartSize } from '@shared/transferConstants'
 import type { VerifyItem, VerifyResult, VerifyMismatch, VerifyMissing } from '@shared/types'
 import { log } from './logger'
 
@@ -160,7 +160,13 @@ class VerifyEngine extends EventEmitter {
         if (typeof checksums[i] !== 'string' || looksMultipart(checksums[i] as string)) return checksums[i]
         const provider = await getProvider(item.connectionId)
         if (!provider.checksum) return checksums[i]
-        return provider.checksum(trees[i].get(relPath)!, { partSizeBytes: S3_MULTIPART_PART_SIZE })
+        const path = trees[i].get(relPath)!
+        // Recompute with the same part size the upload would have used for
+        // this file's actual size (a fixed 32 MiB assumption breaks for a
+        // huge file that needed larger parts to stay within S3's
+        // 10,000-part cap — see computeMultipartPartSize).
+        const { size } = await provider.stat(path)
+        return provider.checksum(path, { partSizeBytes: computeMultipartPartSize(size) })
       })
     )
     return reconciled.every((c) => c !== null) && reconciled.every((c) => c === reconciled[0])

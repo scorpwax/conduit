@@ -20,7 +20,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult, FolderSizeResult } from '@shared/types'
 import { isJunkEntryName } from '../junkFiles'
-import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
+import { computeMultipartPartSize } from '@shared/transferConstants'
 import type { Provider } from './types'
 
 /** Real AWS region ids — used to flag likely S3-compatible configs missing an endpoint. */
@@ -206,9 +206,13 @@ export class S3Provider implements Provider {
       const upload = new Upload({
         client: this.client,
         params: { Bucket: this.cfg.bucket, Key: key, Body: body, ContentLength: size },
-        // 32 MB parts × 6 parallel = 192 MB in-flight at once.
-        // Cyberduck uses similar settings; this is the main lever for upload throughput.
-        partSize: S3_MULTIPART_PART_SIZE,
+        // 32 MB parts × 6 parallel = 192 MB in-flight at once (Cyberduck uses
+        // similar settings; this is the main lever for upload throughput) —
+        // except for a file large enough that 32 MB parts would exceed S3's
+        // 10,000-part-per-upload cap (~312.5 GiB), where this scales the part
+        // size up so the upload doesn't fail partway through with "Part
+        // number must be an integer between 1 and 10000, inclusive."
+        partSize: computeMultipartPartSize(size),
         queueSize: 6,
         leavePartsOnError: false
       })
@@ -356,7 +360,6 @@ export class S3Provider implements Provider {
    */
   private async copyObject(srcKey: string, dstKey: string, knownSize?: number): Promise<void> {
     const COPY_LIMIT = 5 * 1024 * 1024 * 1024 // 5 GB
-    const PART_SIZE = 128 * 1024 * 1024        // 128 MB parts
 
     // Resolve size if not supplied by the caller.
     let size = knownSize
@@ -378,12 +381,13 @@ export class S3Provider implements Provider {
     )
     if (!UploadId) throw new Error('Failed to create multipart upload')
 
+    const partSize = computeMultipartPartSize(size, 128 * 1024 * 1024)
     const parts: { PartNumber: number; ETag: string }[] = []
     try {
       let offset = 0
       let partNumber = 1
       while (offset < size) {
-        const end = Math.min(offset + PART_SIZE - 1, size - 1)
+        const end = Math.min(offset + partSize - 1, size - 1)
         const res = await this.client.send(
           new UploadPartCopyCommand({
             Bucket: this.cfg.bucket,
@@ -395,7 +399,7 @@ export class S3Provider implements Provider {
           })
         )
         parts.push({ PartNumber: partNumber, ETag: res.CopyPartResult?.ETag ?? '' })
-        offset += PART_SIZE
+        offset += partSize
         partNumber++
       }
       await this.client.send(

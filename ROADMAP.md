@@ -103,6 +103,26 @@ of when things landed.
   in Help & Docs (Space, F2, ⌘A, ⌘C, ⌘V, ⌘+/-, ⌘0). Shipped: ⌘↑, ⌘F, ⌘R, ⌘⇧N, ⌘N,
   ⌘P, ⌘`, ⌘L, ⌘W, ⌘D, ⌘I, ⌘⇧C.
 
+- **Mount-as-local-drive parity with Mountain Duck** — today, "Mount to Desktop"
+  only really works for S3/Wasabi (via `rclone` + macFUSE, macOS-only,
+  `src/main/rclone.ts`) and SMB (native OS mount, both platforms); SFTP, FTP,
+  WebDAV, and the cloud providers have no mount path at all, and the S3 path
+  requires the user to `brew install rclone macfuse` themselves. Rather than
+  building a separate mount mechanism per protocol, extend the existing
+  `rclone.ts` remote-config approach (currently S3-only) to also emit SFTP/
+  WebDAV/FTP remotes — rclone natively supports all of them, so this is mostly
+  reusing the pattern already proven for S3, not new infrastructure per
+  provider. To cut the setup friction that makes this feel heavy today:
+  bundle a static `rclone` binary with the app instead of requiring `brew`,
+  and use **FUSE-T** instead of macFUSE on macOS (no kernel extension, no
+  reboot, no "allow this software" System Settings approval) — Windows would
+  still need WinFsp, ideally with a one-click guided install rather than a
+  manual download. Tradeoff to weigh: a bundled rclone binary adds real app
+  size and an ongoing "keep it updated" maintenance line, versus today's
+  near-zero overhead but poor UX (manual install, Mac-only, S3-only).
+  _(Raised 2026-09-15, in response to "can Conduit mount drives like Mountain
+  Duck" — https://mountainduck.io/.)_
+
 ## Providers
 
 - **Cloud storage providers (Dropbox, Google Drive, OneDrive)** — take these three

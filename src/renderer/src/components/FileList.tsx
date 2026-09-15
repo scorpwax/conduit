@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, TreeNode, FolderTreeResult, FolderContentsResult, VerifyResult, FileListColumnKey, FolderSizeResult } from '@shared/types'
 import { BUILTIN_LOCAL_ID } from '@shared/builtin'
-import { S3_MULTIPART_PART_SIZE } from '@shared/transferConstants'
+import { computeMultipartPartSize } from '@shared/transferConstants'
 import type { PaneState } from '../store'
 import { useStore } from '../store'
 import { formatBytes, formatBytesBinary, formatDate, fileIcon, fileType } from '../lib/format'
@@ -1598,7 +1598,7 @@ function CompareModal({ items: initialItems, folderSizes, fetchFolderSize, onClo
       if (reconcileAttempted.current.has(key)) continue
       reconcileAttempted.current.add(key)
       setChecksums((prev) => ({ ...prev, [key]: 'loading' }))
-      void window.conduit.fs.checksum(connectionId, entry.path, { partSizeBytes: S3_MULTIPART_PART_SIZE }).then((c) => {
+      void window.conduit.fs.checksum(connectionId, entry.path, { partSizeBytes: computeMultipartPartSize(entry.size) }).then((c) => {
         setChecksums((prev) => ({ ...prev, [key]: c }))
         setMultipartVerified((prev) => new Set(prev).add(key))
       })
