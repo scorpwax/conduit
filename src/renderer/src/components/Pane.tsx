@@ -195,7 +195,11 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 		return conn ? connColor(conn.type) : null
 	}, [pane.connectionId, connections])
 
-	// ⌘↑ / ⌘F / ⌘R / ⌘⇧N / ⌘N / ⌘W for this pane — see Help & Docs > Keyboard Shortcuts.
+	function openAdvancedSearch(): void {
+		void window.conduit.search.openWindow({ connectionId: pane.connectionId, path: pane.path })
+	}
+
+	// ⌘↑ / ⌘F / ⌘⇧F / ⌘R / ⌘⇧N / ⌘N / ⌘W for this pane — see Help & Docs > Keyboard Shortcuts.
 	function onPaneKeyDown(e: React.KeyboardEvent): void {
 		const meta = e.metaKey || e.ctrlKey
 		if (!meta) return
@@ -210,6 +214,12 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 		if (e.key === 'ArrowUp') {
 			e.preventDefault()
 			navigateUp(pane.id)
+		} else if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+			// Advanced Search scoped to THIS pane. stopPropagation keeps App's
+			// window-level ⌘⇧F (which scopes to the first pane) from also firing.
+			e.preventDefault()
+			e.stopPropagation()
+			openAdvancedSearch()
 		} else if (!typing && (e.key === 'f' || e.key === 'F')) {
 			e.preventDefault()
 			setShowFilter(true)
@@ -316,6 +326,14 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 						}}
 					>
 						<span className="material-symbols-outlined">search</span>
+					</button>
+					<button
+						className="iconbtn"
+						title="Advanced search — everything in this connection (⌘⇧F)"
+						disabled={!connection}
+						onClick={openAdvancedSearch}
+					>
+						<span className="material-symbols-outlined">manage_search</span>
 					</button>
 					<button className="iconbtn refresh-btn" title="Refresh (⌘R)" disabled={!connection} onClick={() => refreshPane(pane.id)}>
 						<span className="material-symbols-outlined">refresh</span>

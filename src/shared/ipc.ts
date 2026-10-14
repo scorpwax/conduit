@@ -73,6 +73,14 @@ export const IPC = {
   syncGetLaunchAtStartup: 'sync:getLaunchAtStartup',
   syncSetLaunchAtStartup: 'sync:setLaunchAtStartup',
 
+  searchOpenWindow: 'search:openWindow',
+  searchGetContext: 'search:getContext',
+  searchStart: 'search:start',
+  searchCancel: 'search:cancel',
+  searchPickFolder: 'search:pickFolder',
+  searchOpenInPane: 'search:openInPane',
+  searchExportCsv: 'search:exportCsv',
+
   appCheckUpdates: 'app:checkUpdates',
   appOpenExternal: 'app:openExternal',
 
@@ -86,5 +94,10 @@ export const IPC = {
   evtSyncProgress: 'evt:sync:progress',
   evtUpdateAvailable: 'evt:update:available',
   evtVerifyProgress: 'evt:verify:progress',
-  evtVerifyDone: 'evt:verify:done'
+  evtVerifyDone: 'evt:verify:done',
+  evtSearchBatch: 'evt:search:batch',
+  evtSearchProgress: 'evt:search:progress',
+  evtSearchDone: 'evt:search:done',
+  evtSearchContext: 'evt:search:context',
+  evtSearchOpenInPane: 'evt:search:openInPane'
 } as const

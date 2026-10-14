@@ -714,6 +714,35 @@ function DocsContent(): JSX.Element {
       </section>
 
       <section className="docs-section">
+        <h3>Advanced Search</h3>
+        <p>
+          Click the <strong>Search</strong> button in the title bar (or the magnifier-list icon on a pane, or
+          <kbd>⌘ ⇧ F</kbd>) to search <em>everything</em> inside a connection — every subfolder, not just the
+          one you're looking at. It opens in its own window so you can keep working while it runs.
+          Select results and choose <strong>Open in New Pane</strong> (or double-click one) to jump to it, or <strong>Download</strong> to queue them to your download folder.
+        </p>
+        <table className="docs-table">
+          <thead><tr><th>Type this</th><th>To find</th></tr></thead>
+          <tbody>
+            <tr><td><code>jason interview</code></td><td>Names containing all the words (switch to "Any word" for either)</td></tr>
+            <tr><td><code>"jason interview"</code></td><td>The exact phrase</td></tr>
+            <tr><td><code>jason -proxy</code></td><td>Contains jason, but not proxy (or use the Exclude words box)</td></tr>
+            <tr><td><code>*.braw</code> &nbsp; <code>int?rview*</code></td><td>Wildcards: <code>*</code> = any characters, <code>?</code> = one character. Must match the whole name.</td></tr>
+            <tr><td><code>ext:braw,r3d</code> &nbsp; <code>-ext:tmp</code></td><td>By file type (or use the File types box / presets)</td></tr>
+            <tr><td><code>type:folder</code></td><td>Folders only (<code>type:file</code> for files only)</td></tr>
+            <tr><td><code>size:&gt;1gb</code> &nbsp; <code>size:1gb..5gb</code></td><td>By size (files only)</td></tr>
+            <tr><td><code>after:2026-01-01</code> &nbsp; <code>before:2026-06-30</code></td><td>By modified date</td></tr>
+            <tr><td><code>path:interviews</code></td><td>Anything whose folder path contains "interviews"</td></tr>
+          </tbody>
+        </table>
+        <ul>
+          <li><strong>Speed</strong> — S3/Wasabi searches use one flat bucket listing instead of opening folders one at a time. Listings from S3/SFTP/etc. are remembered for 10 minutes, so repeat searches are instant; use <strong>Re-scan</strong> to refresh.</li>
+          <li><strong>Local disks</strong> — searching a whole disk can take a while; pick a folder with "Choose…" to narrow it.</li>
+          <li>The in-window <strong>Cheat sheet</strong> button has clickable examples.</li>
+        </ul>
+      </section>
+
+      <section className="docs-section">
         <h3>Keyboard Shortcuts</h3>
         <table className="docs-table">
           <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
@@ -728,6 +757,7 @@ function DocsContent(): JSX.Element {
             <tr><td><kbd>⌘ 0</kbd></td><td>Reset font size</td></tr>
             <tr><td><kbd>⌘ ↑</kbd> / <kbd>Ctrl ↑</kbd></td><td>Up one level</td></tr>
             <tr><td><kbd>⌘ F</kbd> / <kbd>Ctrl F</kbd></td><td>Search / filter in current pane</td></tr>
+            <tr><td><kbd>⌘ ⇧ F</kbd> / <kbd>Ctrl ⇧ F</kbd></td><td>Advanced Search — everything in this connection (opens its own window)</td></tr>
             <tr><td><kbd>⌘ R</kbd> / <kbd>Ctrl R</kbd></td><td>Refresh current pane</td></tr>
             <tr><td><kbd>⌘ ⇧ N</kbd> / <kbd>Ctrl ⇧N</kbd></td><td>New folder</td></tr>
             <tr><td><kbd>⌘ N</kbd> / <kbd>Ctrl N</kbd></td><td>New file</td></tr>

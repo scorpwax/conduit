@@ -106,4 +106,22 @@ export interface Provider {
    * this; others fall back to the generic recursive list() loop in the IPC handler.
    */
   folderTree?(path: string): Promise<FolderTreeResult>
+
+  /**
+   * Stream every entry (files AND folders) under `path`, recursively, for
+   * Advanced Search. Providers with something faster than a folder-by-folder
+   * walk implement this (S3: one flat ListObjectsV2; local: parallel readdir);
+   * everything else is walked generically via list() in main/search.ts.
+   *
+   * Entries with `size === -1` have not been stat'd yet (the walker skipped
+   * the cost because most entries never match) — the caller stats survivors.
+   */
+  walk?(path: string, onEntries: (entries: FileEntry[]) => void, opts: WalkOptions): Promise<void>
+}
+
+export interface WalkOptions {
+  signal: AbortSignal
+  /** Don't descend into dot-folders (a big win on local disks). */
+  skipHiddenDirs: boolean
+  onFolders?: (done: number, queued: number) => void
 }

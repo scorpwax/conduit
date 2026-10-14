@@ -5,7 +5,7 @@ import { pipeline } from 'stream/promises'
 import { createHash } from 'crypto'
 import type { Readable } from 'stream'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, LocalConfig } from '@shared/types'
-import type { Provider } from './types'
+import type { Provider, WalkOptions } from './types'
 
 export class LocalProvider implements Provider {
   constructor(public readonly connection: Connection) {}
@@ -52,6 +52,66 @@ export class LocalProvider implements Provider {
       }
     }
     return { path: dir, entries }
+  }
+
+  /**
+   * Parallel recursive readdir. Uses dirent types only — no per-file stat —
+   * so a whole-disk walk is bounded by directory reads. Symlinked folders are
+   * not followed (avoids loops and double-counting, e.g. /Volumes/<boot disk>).
+   */
+  async walk(path: string, onEntries: (entries: FileEntry[]) => void, opts: WalkOptions): Promise<void> {
+    const queue: string[] = [this.resolve(path)]
+    let queued = 1
+    let done = 0
+    let active = 0
+    const CONCURRENCY = 24
+
+    await new Promise<void>((resolve) => {
+      const pump = (): void => {
+        if (opts.signal.aborted) {
+          if (active === 0) resolve()
+          return
+        }
+        while (active < CONCURRENCY && queue.length > 0) {
+          const dir = queue.pop()!
+          active++
+          void fs
+            .readdir(dir, { withFileTypes: true })
+            .then((dirents) => {
+              const batch: FileEntry[] = []
+              for (const d of dirents) {
+                const isDir = d.isDirectory()
+                const hidden = d.name.startsWith('.')
+                batch.push({
+                  name: d.name,
+                  path: join(dir, d.name),
+                  kind: isDir ? 'directory' : 'file',
+                  size: -1,
+                  modified: null,
+                  hidden
+                })
+                if (isDir && !(hidden && opts.skipHiddenDirs)) {
+                  queue.push(join(dir, d.name))
+                  queued++
+                }
+              }
+              if (batch.length) onEntries(batch)
+            })
+            .catch(() => {
+              // Permission denied / vanished mid-walk — skip this folder.
+            })
+            .finally(() => {
+              active--
+              done++
+              opts.onFolders?.(done, queued)
+              if (active === 0 && queue.length === 0) resolve()
+              else pump()
+            })
+        }
+        if (active === 0 && queue.length === 0) resolve()
+      }
+      pump()
+    })
   }
 
   async stat(path: string): Promise<FileEntry> {

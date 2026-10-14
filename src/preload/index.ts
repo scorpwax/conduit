@@ -26,6 +26,14 @@ import type {
   VerifyResult,
   FolderSizeResult
 } from '../shared/types'
+import type {
+  SearchRequest,
+  SearchResult,
+  SearchProgress,
+  SearchDone,
+  SearchContext,
+  SearchOpenInPane
+} from '../shared/search'
 
 /** The typed API surface exposed to the renderer as window.conduit. */
 const api = {
@@ -188,6 +196,43 @@ const api = {
       const listener = (_e: unknown, progress: SyncProgress): void => cb(progress)
       ipcRenderer.on(IPC.evtSyncProgress, listener)
       return () => ipcRenderer.removeListener(IPC.evtSyncProgress, listener)
+    }
+  },
+  search: {
+    /** Open (or focus) the Advanced Search window, optionally pre-scoped to a pane. */
+    openWindow: (ctx: SearchContext): Promise<void> => ipcRenderer.invoke(IPC.searchOpenWindow, ctx),
+    getContext: (): Promise<SearchContext | null> => ipcRenderer.invoke(IPC.searchGetContext),
+    start: (req: SearchRequest): Promise<void> => ipcRenderer.invoke(IPC.searchStart, req),
+    cancel: (searchId: string): Promise<void> => ipcRenderer.invoke(IPC.searchCancel, searchId),
+    pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.searchPickFolder),
+    openInPane: (target: SearchOpenInPane): Promise<void> => ipcRenderer.invoke(IPC.searchOpenInPane, target),
+    exportCsv: (rows: SearchResult[]): Promise<boolean> => ipcRenderer.invoke(IPC.searchExportCsv, rows),
+    onBatch: (cb: (searchId: string, results: SearchResult[]) => void): (() => void) => {
+      const listener = (_e: unknown, searchId: string, results: SearchResult[]): void => cb(searchId, results)
+      ipcRenderer.on(IPC.evtSearchBatch, listener)
+      return () => ipcRenderer.removeListener(IPC.evtSearchBatch, listener)
+    },
+    onProgress: (cb: (p: SearchProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: SearchProgress): void => cb(p)
+      ipcRenderer.on(IPC.evtSearchProgress, listener)
+      return () => ipcRenderer.removeListener(IPC.evtSearchProgress, listener)
+    },
+    onDone: (cb: (d: SearchDone) => void): (() => void) => {
+      const listener = (_e: unknown, d: SearchDone): void => cb(d)
+      ipcRenderer.on(IPC.evtSearchDone, listener)
+      return () => ipcRenderer.removeListener(IPC.evtSearchDone, listener)
+    },
+    /** Search window: the main window asked to re-scope an already-open search. */
+    onContext: (cb: (ctx: SearchContext) => void): (() => void) => {
+      const listener = (_e: unknown, ctx: SearchContext): void => cb(ctx)
+      ipcRenderer.on(IPC.evtSearchContext, listener)
+      return () => ipcRenderer.removeListener(IPC.evtSearchContext, listener)
+    },
+    /** Main window: a search result asked to be opened in a new pane. */
+    onOpenInPane: (cb: (target: SearchOpenInPane) => void): (() => void) => {
+      const listener = (_e: unknown, target: SearchOpenInPane): void => cb(target)
+      ipcRenderer.on(IPC.evtSearchOpenInPane, listener)
+      return () => ipcRenderer.removeListener(IPC.evtSearchOpenInPane, listener)
     }
   },
   /** Resolve the absolute path of a File dropped from the OS (Finder/desktop). */

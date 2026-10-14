@@ -32,6 +32,15 @@ of when things landed.
   or retries spike, so the user knows what's happening without the transfer stalling
   on its own.
 
+## Search
+
+- **✅ COMPLETE v1.30.0 – Advanced Search window** — search everything in a connection by name/path/type/size/date, with wildcards, operators, and Open in New Pane (Local, S3/Wasabi, SFTP tuned; other providers use the generic walk).
+- **Search file contents** — match text inside files (remote: text-like files under a size cap, with a warning before downloading). _(Deferred from the v1.30.0 plan.)_
+- **Search all connections at once** — run one query across every connection, results grouped by connection.
+- **Duplicate finder** — same name + size, or matching checksum/ETag, within a connection.
+- **Saved searches & history**, and bulk actions (delete/move/rename) on results.
+- **Persistent search index** — keep the S3/SFTP index on disk across launches (v1.30.0 caches in memory for 10 minutes).
+
 ## Transfers
 
 - **Search in Transfers** - Ability to search through active transfers to find a specific file. _(Raised 2026-09-09.)_

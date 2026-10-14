@@ -112,6 +112,32 @@ export default function App(): JSX.Element {
 		}
 	}, [transfers])
 
+	// Advanced Search window asked to open a result in a brand-new pane.
+	useEffect(() => {
+		return window.conduit.search.onOpenInPane(async (target) => {
+			const store = useStore.getState()
+			if (store.panes.length >= 5) {
+				// Pane cap reached — reuse the last pane instead of silently doing nothing.
+				const last = store.panes[store.panes.length - 1]
+				await store.openLocation(last.id, target.connectionId, target.path)
+				if (target.select.length) store.setSelection(last.id, target.select)
+				return
+			}
+			await store.openInNewPane(target.connectionId, target.path)
+			if (target.select.length) {
+				const panes = useStore.getState().panes
+				useStore.getState().setSelection(panes[panes.length - 1].id, target.select)
+			}
+		})
+	}, [])
+
+	function openSearch(): void {
+		// Scope the search to the first pane that has a connection (each pane
+		// also has its own search button for a precise scope).
+		const pane = useStore.getState().panes.find((p) => p.connectionId)
+		void window.conduit.search.openWindow({ connectionId: pane?.connectionId ?? null, path: pane?.path ?? '' })
+	}
+
 	// Apply the file-list font scale globally.
 	useEffect(() => {
 		document.documentElement.style.setProperty('--fl-scale', String(fontScale))
@@ -144,6 +170,9 @@ export default function App(): JSX.Element {
 			} else if (!typing && (e.key === '`' || e.key === '~')) {
 				e.preventDefault()
 				setSettingsOpen(true)
+			} else if (e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+				e.preventDefault()
+				openSearch()
 			} else if (!typing && (e.key === 'l' || e.key === 'L')) {
 				e.preventDefault()
 				setLogsOpen(true)
@@ -239,6 +268,9 @@ export default function App(): JSX.Element {
 						A+
 					</button>
 				</div>
+				<button className="btn ghost toolbtn" title="Advanced Search (⌘⇧F)" onClick={openSearch}>
+					<span className="material-symbols-outlined">manage_search</span> Search
+				</button>
 				<button className="btn ghost toolbtn" title="Sync Tasks" onClick={() => setSyncOpen(true)}>
 					<span className="material-symbols-outlined">sync</span> Sync
 				</button>

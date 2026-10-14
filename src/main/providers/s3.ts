@@ -21,7 +21,7 @@ import { NodeHttpHandler } from '@smithy/node-http-handler'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult, FolderSizeResult } from '@shared/types'
 import { isJunkEntryName } from '../junkFiles'
 import { computeMultipartPartSize } from '@shared/transferConstants'
-import type { Provider } from './types'
+import type { Provider, WalkOptions } from './types'
 
 /** Real AWS region ids — used to flag likely S3-compatible configs missing an endpoint. */
 const AWS_REGIONS = new Set([
@@ -453,6 +453,55 @@ export class S3Provider implements Provider {
       return null
     }
     return { size: totalSize, junkBytes, latestModified: latestMs > 0 ? new Date(latestMs).toISOString() : null }
+  }
+
+  /**
+   * Whole-prefix listing with no delimiter: ~1000 objects per round trip, so
+   * a bucket with a million keys is ~1000 requests regardless of how deep the
+   * folders go. Folders are synthesized from key prefixes (S3 only stores
+   * keys), emitted the first time each one is seen.
+   */
+  async walk(path: string, onEntries: (entries: FileEntry[]) => void, opts: WalkOptions): Promise<void> {
+    const Prefix = this.asPrefix(path)
+    const seenDirs = new Set<string>()
+    let ContinuationToken: string | undefined
+
+    do {
+      if (opts.signal.aborted) return
+      const res = await this.client.send(
+        new ListObjectsV2Command({ Bucket: this.cfg.bucket, Prefix, ContinuationToken }),
+        { abortSignal: opts.signal }
+      )
+      const batch: FileEntry[] = []
+      for (const obj of res.Contents ?? []) {
+        const key = obj.Key
+        if (!key || key === Prefix) continue
+        const rel = key.slice(Prefix.length)
+        const parts = rel.split('/')
+        const isMarker = key.endsWith('/')
+        // Every folder along this key (for a "a/b/" marker that includes b itself).
+        const dirDepth = parts.length - 1
+        let acc = Prefix
+        for (let i = 0; i < dirDepth; i++) {
+          acc += parts[i] + '/'
+          if (!parts[i] || seenDirs.has(acc)) continue
+          seenDirs.add(acc)
+          batch.push({ name: parts[i], path: acc.replace(/\/$/, ''), kind: 'directory', size: 0, modified: null })
+        }
+        if (isMarker) continue
+        batch.push({
+          name: parts[parts.length - 1],
+          path: key,
+          kind: 'file',
+          size: obj.Size ?? 0,
+          modified: obj.LastModified ? obj.LastModified.toISOString() : null,
+          storageClass: obj.StorageClass ?? null,
+          etag: obj.ETag ? obj.ETag.replace(/"/g, '') : null
+        })
+      }
+      if (batch.length) onEntries(batch)
+      ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined
+    } while (ContinuationToken)
   }
 
   async folderTree(path: string): Promise<FolderTreeResult> {

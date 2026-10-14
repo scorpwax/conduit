@@ -12,6 +12,25 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.31.0] — 2026-10-13
+
+### Added
+- **Download from Advanced Search** — select results and click **Download** (or right-click → Download / Download to…) to queue them straight to your download folder; they appear in the main window's Transfers panel. Downloads never overwrite existing files (name collisions are kept side by side).
+- **"Choose…" folder button for remote connections** in Advanced Search — Wasabi/S3, SFTP, etc. now open a folder browser instead of requiring a typed path.
+
+### Changed
+- Advanced Search's **Exclude words** is now a checkbox that reveals its input only when checked (unchecked = ignored), keeping the filter row tidy.
+
+## [1.30.0] — 2026-10-13
+
+### Added
+- **Advanced Search** — a new standalone window (title-bar **Search** button, the magnifier-list icon on any pane, or ⌘⇧F) that searches *everything* inside a connection, not just the folder you're in. Results stream in as they're found, with a live progress bar, item counter, and a Stop button.
+  - Search by name or full path; several words (all/any), `"exact phrases"`, whole-word, case-sensitive, and `*` / `?` wildcards.
+  - Operators in the query box — `-word` to exclude, `ext:braw,r3d`, `type:folder`, `size:>1gb`, `size:1gb..5gb`, `after:` / `before:` dates, `path:` — plus dedicated File types (with presets: Camera RAW, Video, Audio, Images, Documents, Project files, Archives), Exclude words, Size, and Modified-date fields. A clickable in-window cheat sheet explains all of it.
+  - Sortable results table; **Open in New Pane** (button, double-click, or Return) opens the result's folder in a new pane with it selected. Also right-click → Reveal in Finder (local), Copy Path/Name, and Export CSV.
+  - Fast by design: S3/Wasabi uses one flat bucket listing (no folder-by-folder walking), local disks are read in parallel, and other connections (SFTP, etc.) are walked with a bounded number of parallel listings. Remote listings are cached in memory for 10 minutes so repeat searches are instant (**Re-scan** refreshes). OS junk files and hidden files are filtered out unless "Hidden files" is checked.
+  - Help & Docs gained an **Advanced Search** section and the new shortcut.
+
 ## [1.29.1] — 2026-09-15
 
 ### Fixed

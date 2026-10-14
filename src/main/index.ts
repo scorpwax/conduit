@@ -6,6 +6,8 @@ import { execFile } from 'child_process'
 import { IPC } from '@shared/ipc'
 import type { Connection, TransferRequest, Bookmark, LogEntry, AppSettings, UiState, TreeNode, FolderTreeResult, FolderContentsResult, SyncTask, SyncPreviewItem, VerifyItem, VerifyResult, VerifyProgress, FolderSizeResult } from '@shared/types'
 import { BUILTIN_LOCAL, BUILTIN_LOCAL_ID } from '@shared/builtin'
+import type { SearchContext, SearchRequest, SearchResult, SearchOpenInPane } from '@shared/search'
+import { runSearch, cancelSearch, cancelAllSearches, invalidateSearchCache } from './search'
 import { syncStore } from './syncStore'
 import { syncEngine } from './sync/engine'
 import { logger, log } from './logger'
@@ -27,6 +29,9 @@ import { checkForUpdates } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let speedGraphWindow: BrowserWindow | null = null
+let searchWindow: BrowserWindow | null = null
+/** Scope handed to the search window; read by it on load via searchGetContext. */
+let pendingSearchContext: SearchContext | null = null
 
 /** Escape a string for safe interpolation into an AppleScript double-quoted literal. */
 function escapeAppleScriptString(s: string): string {
@@ -340,18 +345,61 @@ function openSpeedGraphWindow(): void {
   }
 }
 
+/** Open the Advanced Search window (or re-scope + focus it if already open). */
+function openSearchWindow(ctx: SearchContext): void {
+  pendingSearchContext = ctx
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    if (searchWindow.isMinimized()) searchWindow.restore()
+    searchWindow.focus()
+    searchWindow.webContents.send(IPC.evtSearchContext, ctx)
+    return
+  }
+
+  searchWindow = new BrowserWindow({
+    width: 980,
+    height: 700,
+    minWidth: 760,
+    minHeight: 480,
+    title: 'Conduit — Advanced Search',
+    backgroundColor: '#0f1115',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.mjs'),
+      sandbox: false,
+      contextIsolation: true
+    }
+  })
+
+  searchWindow.on('ready-to-show', () => searchWindow?.show())
+  searchWindow.on('closed', () => {
+    searchWindow = null
+    cancelAllSearches()
+  })
+  searchWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    searchWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#search`)
+  } else {
+    searchWindow.loadFile(join(__dirname, '../renderer/index.html'), { hash: 'search' })
+  }
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC.connectionsGetAll, () => connectionStore.getAll())
 
   ipcMain.handle(IPC.connectionsSave, async (_e, conn: Connection) => {
     const saved = await connectionStore.save(conn)
     invalidateProvider(conn.id)
+    invalidateSearchCache(conn.id)
     return saved
   })
 
   ipcMain.handle(IPC.connectionsRemove, async (_e, id: string) => {
     await connectionStore.remove(id)
     invalidateProvider(id)
+    invalidateSearchCache(id)
   })
 
   // Disconnect: tear down the live provider (unmounts any SMB share we mounted)
@@ -639,6 +687,52 @@ function registerIpc(): void {
   ipcMain.handle(IPC.transferCancelAll, () => transferEngine.cancelAll())
   ipcMain.handle(IPC.transferClearFinished, () => transferEngine.clearFinished())
   ipcMain.handle(IPC.transferRetry, (_e, id: string) => transferEngine.retry(id))
+  ipcMain.handle(IPC.searchOpenWindow, (_e, ctx: SearchContext) => openSearchWindow(ctx))
+  ipcMain.handle(IPC.searchGetContext, () => pendingSearchContext)
+
+  ipcMain.handle(IPC.searchStart, (e, req: SearchRequest) => {
+    const sender = e.sender
+    const send = (channel: string, ...args: unknown[]): void => {
+      if (!sender.isDestroyed()) sender.send(channel, ...args)
+    }
+    // Fire and forget: results stream back as events.
+    void runSearch(req, {
+      batch: (id, results) => send(IPC.evtSearchBatch, id, results),
+      progress: (p) => send(IPC.evtSearchProgress, p),
+      done: (d) => send(IPC.evtSearchDone, d)
+    })
+  })
+  ipcMain.handle(IPC.searchCancel, (_e, searchId: string) => cancelSearch(searchId))
+
+  ipcMain.handle(IPC.searchPickFolder, async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts = { properties: ['openDirectory' as const] }
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return res.canceled ? null : res.filePaths[0]
+  })
+
+  ipcMain.handle(IPC.searchOpenInPane, (_e, target: SearchOpenInPane) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+    mainWindow.webContents.send(IPC.evtSearchOpenInPane, target)
+  })
+
+  ipcMain.handle(IPC.searchExportCsv, async (e, rows: SearchResult[]) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const opts = {
+      defaultPath: `Conduit search ${new Date().toISOString().slice(0, 10)}.csv`,
+      filters: [{ name: 'CSV', extensions: ['csv'] }]
+    }
+    const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+    if (res.canceled || !res.filePath) return false
+    const esc = (v: string | number): string => `"${String(v).replace(/"/g, '""')}"`
+    const lines = ['Name,Folder,Kind,Size (bytes),Modified,Full path']
+    for (const r of rows) lines.push([r.name, r.dir, r.kind, r.size, r.modified ?? '', r.path].map(esc).join(','))
+    await fs.writeFile(res.filePath, lines.join('\n'), 'utf-8')
+    return true
+  })
+
   ipcMain.handle(IPC.transferOpenSpeedGraph, () => openSpeedGraphWindow())
 
   // Drag local files out to the OS (Finder, Desktop, etc.).
