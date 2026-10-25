@@ -12,6 +12,16 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.31.1] — 2026-10-14
+
+### Fixed
+- **Google Drive, OneDrive and Dropbox hardening** (still marked "Coming Soon" until tested against live accounts):
+  - Transient failures — HTTP 429 / 5xx, rate-limit 403s, dropped connections — are now retried with backoff (honoring `Retry-After`); an expired access token (401) triggers a refresh and retry.
+  - **Resumable downloads** now work: all three providers honor the resume offset instead of re-sending the whole file (which would have corrupted a resumed download).
+  - **Google Drive** uploads are now chunked resumable uploads that recover mid-file instead of one unretryable stream; shared drives are supported; renamed/deleted folders no longer leave stale path→ID cache entries; Google Docs/Sheets/Slides files give a clear "not downloadable" error.
+  - **OneDrive**: creating a folder no longer uses `replace` conflict behavior (which could wipe an existing folder's contents); zero-byte files upload correctly; interrupted chunk uploads resume from the server's expected byte; folder/file errors are no longer swallowed.
+  - **Dropbox**: the access token is refreshed per request (uploads over ~4 hours no longer fail); chunk retries are safe against "incorrect_offset"; only files up to 32 MB are buffered in memory (was 140 MB × concurrent transfers); `mkdir` surfaces real errors.
+
 ## [1.31.0] — 2026-10-13
 
 ### Added

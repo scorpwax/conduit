@@ -3,10 +3,11 @@ import { posix } from 'path'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, OAuthConfig } from '@shared/types'
 import type { Provider } from './types'
 import { refreshTokens, type OAuthProviderConfig, type OAuthTokens } from '../oauth'
+import { withRetry, streamToBuffer, chunkWithLast } from './cloudHttp'
 
 const RPC = 'https://api.dropboxapi.com/2'
 const CONTENT = 'https://content.dropboxapi.com/2'
-const SINGLE_UPLOAD_MAX = 140 * 1024 * 1024 // Dropbox single-request limit is 150MB
+const SINGLE_UPLOAD_MAX = 32 * 1024 * 1024 // buffered in memory; larger files use an upload session (API limit is 150MB)
 const CHUNK = 16 * 1024 * 1024
 
 export const DROPBOX_OAUTH = {
@@ -63,11 +64,22 @@ export class DropboxProvider implements Provider {
     return n ? '/' + n : ''
   }
 
+  /** Authenticated fetch with retry on 429/5xx and one re-auth on 401 (tokens last ~4h). */
+  private req(url: string, init: RequestInit): Promise<Response> {
+    return withRetry(
+      async () =>
+        fetch(url, {
+          ...init,
+          headers: { Authorization: `Bearer ${await this.token()}`, ...(init.headers ?? {}) }
+        }),
+      { onUnauthorized: () => (this.tokens = null) }
+    )
+  }
+
   private async rpc<T>(endpoint: string, arg: unknown): Promise<T> {
-    const token = await this.token()
-    const res = await fetch(`${RPC}/${endpoint}`, {
+    const res = await this.req(`${RPC}/${endpoint}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(arg)
     })
     if (!res.ok) throw new Error(`Dropbox ${endpoint} ${res.status}: ${await res.text()}`)
@@ -110,110 +122,113 @@ export class DropboxProvider implements Provider {
     return this.toEntry(e, parent === '.' ? '' : parent)
   }
 
-  async createReadStream(path: string): Promise<{ stream: Readable; size: number }> {
-    const token = await this.token()
-    const res = await fetch(`${CONTENT}/files/download`, {
+  async createReadStream(path: string, offset = 0): Promise<{ stream: Readable; size: number }> {
+    const res = await this.req(`${CONTENT}/files/download`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Dropbox-API-Arg': headerSafe({ path: this.dbx(path) }) }
+      headers: {
+        'Dropbox-API-Arg': headerSafe({ path: this.dbx(path) }),
+        ...(offset > 0 ? { Range: `bytes=${offset}-` } : {})
+      }
     })
-    if (!res.ok || !res.body) throw new Error(`Dropbox download ${res.status}: ${await res.text()}`)
+    if (!res.ok || !res.body) throw new Error(`Dropbox download ${res.status}: ${await res.text().catch(() => '')}`)
+    if (offset > 0 && res.status !== 206) throw new Error('Dropbox did not honor the resume range')
     const result = res.headers.get('dropbox-api-result')
     const size = result ? (JSON.parse(result).size as number) ?? 0 : 0
     return { stream: Readable.fromWeb(res.body as never), size }
   }
 
   async writeFile(path: string, body: Readable, size: number, onProgress?: (n: number) => void): Promise<void> {
-    const token = await this.token()
     const dbxPath = this.dbx(path)
+
+    const post = (endpoint: string, arg: unknown, data: Buffer): Promise<Response> =>
+      this.req(`${CONTENT}/files/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': headerSafe(arg) },
+        body: data
+      })
 
     if (size >= 0 && size <= SINGLE_UPLOAD_MAX) {
       const buf = await streamToBuffer(body)
       onProgress?.(buf.length)
-      const res = await fetch(`${CONTENT}/files/upload`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/octet-stream',
-          'Dropbox-API-Arg': headerSafe({ path: dbxPath, mode: 'overwrite', mute: true })
-        },
-        body: buf
-      })
+      const res = await post('upload', { path: dbxPath, mode: 'overwrite', mute: true }, buf)
       if (!res.ok) throw new Error(`Dropbox upload ${res.status}: ${await res.text()}`)
       return
     }
 
-    // Large file: upload session (start → append* → finish). We look ahead one
-    // chunk so we know which chunk is the last (it carries the commit).
+    // Large file: upload session (start → append* → finish). chunkWithLast tells
+    // us which chunk is the last (it carries the commit).
     let sessionId = ''
     let offset = 0
 
-    const post = (endpoint: string, arg: unknown, chunk: Buffer): Promise<Response> =>
-      fetch(`${CONTENT}/files/${endpoint}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/octet-stream',
-          'Dropbox-API-Arg': headerSafe(arg)
-        },
-        body: chunk
-      })
+    /**
+     * A retried append can hit "incorrect_offset" if the first attempt actually
+     * landed before the connection dropped. If Dropbox's expected offset is the
+     * end of this chunk, the chunk is already there — treat it as success.
+     */
+    const ensureOk = async (res: Response, label: string, chunkLen: number): Promise<Response> => {
+      if (res.ok) return res
+      const text = await res.text()
+      if (res.status === 409) {
+        try {
+          const correct = JSON.parse(text)?.error?.correct_offset
+          if (correct === offset + chunkLen) return res
+        } catch {
+          /* not JSON */
+        }
+      }
+      throw new Error(`Dropbox ${label} ${res.status}: ${text}`)
+    }
 
-    const commitArg = (): unknown => ({
-      cursor: { session_id: sessionId, offset },
-      commit: { path: dbxPath, mode: 'overwrite', mute: true }
-    })
-
-    const flush = async (chunk: Buffer, isLast: boolean): Promise<void> => {
+    for await (const { chunk, isLast } of chunkWithLast(body, CHUNK)) {
       if (!sessionId) {
-        const res = await post('upload_session/start', { close: isLast }, chunk)
+        const res = await post('upload_session/start', { close: false }, chunk)
         if (!res.ok) throw new Error(`Dropbox session start ${res.status}: ${await res.text()}`)
         sessionId = ((await res.json()) as { session_id: string }).session_id
-        offset += chunk.length
-        onProgress?.(offset)
-        if (isLast) {
-          const fin = await post('upload_session/finish', commitArg(), Buffer.alloc(0))
-          if (!fin.ok) throw new Error(`Dropbox session finish ${fin.status}: ${await fin.text()}`)
-        }
-        return
+      } else if (!isLast) {
+        const res = await post('upload_session/append_v2', { cursor: { session_id: sessionId, offset }, close: false }, chunk)
+        await ensureOk(res, 'append_v2', chunk.length)
       }
-      const endpoint = isLast ? 'upload_session/finish' : 'upload_session/append_v2'
-      const arg = isLast ? commitArg() : { cursor: { session_id: sessionId, offset }, close: false }
-      const res = await post(endpoint, arg, chunk)
-      if (!res.ok) throw new Error(`Dropbox session ${endpoint} ${res.status}: ${await res.text()}`)
+      if (isLast) {
+        // The first chunk is also the last for files just over SINGLE_UPLOAD_MAX that
+        // arrive as one chunk; in that case it was sent by `start` above with no data left.
+        const sentByStart = offset === 0
+        const commit = {
+          cursor: { session_id: sessionId, offset: sentByStart ? chunk.length : offset },
+          commit: { path: dbxPath, mode: 'overwrite', mute: true }
+        }
+        const res = await post('upload_session/finish', commit, sentByStart ? Buffer.alloc(0) : chunk)
+        await ensureOk(res, 'finish', sentByStart ? 0 : chunk.length)
+      }
       offset += chunk.length
       onProgress?.(offset)
     }
-
-    let pending: Buffer | null = null
-    for await (const chunk of chunker(body, CHUNK)) {
-      if (pending) await flush(pending, false)
-      pending = chunk
+    if (!sessionId) {
+      // Empty stream with a large declared size — nothing to commit.
+      throw new Error('Dropbox upload: source stream was empty')
     }
-    await flush(pending ?? Buffer.alloc(0), true)
   }
 
   async mkdir(path: string): Promise<void> {
     const p = this.dbx(path)
     if (!p) return
     try {
-      await this.rpc('files/create_folder_v2', { path: p })
-    } catch {
-      // already exists — fine
+      await this.rpc('files/create_folder_v2', { path: p }) // creates missing parents too
+    } catch (err) {
+      // Already exists is fine; surface anything else (permissions, bad name, quota).
+      if (!/path\/conflict/.test((err as Error).message)) throw err
     }
   }
 
   async createFile(path: string): Promise<void> {
-    const token = await this.token()
-    const res = await fetch(`${CONTENT}/files/upload`, {
+    const res = await this.req(`${CONTENT}/files/upload`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/octet-stream',
         'Dropbox-API-Arg': headerSafe({ path: this.dbx(path), mode: 'add', autorename: true })
       },
       body: Buffer.alloc(0)
     })
-    if (!res.ok) throw new Error(`Dropbox create ${res.status}`)
+    if (!res.ok) throw new Error(`Dropbox create ${res.status}: ${await res.text()}`)
   }
 
   async delete(path: string, _kind: 'file' | 'directory'): Promise<void> {
@@ -254,22 +269,4 @@ export class DropboxProvider implements Provider {
       return { ok: false, message: (err as Error).message }
     }
   }
-}
-
-async function streamToBuffer(stream: Readable): Promise<Buffer> {
-  const chunks: Buffer[] = []
-  for await (const c of stream) chunks.push(c as Buffer)
-  return Buffer.concat(chunks)
-}
-
-async function* chunker(stream: Readable, size: number): AsyncGenerator<Buffer> {
-  let buf = Buffer.alloc(0)
-  for await (const c of stream) {
-    buf = Buffer.concat([buf, c as Buffer])
-    while (buf.length >= size) {
-      yield buf.subarray(0, size)
-      buf = buf.subarray(size)
-    }
-  }
-  if (buf.length > 0) yield buf
 }
