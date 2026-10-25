@@ -327,14 +327,6 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 					>
 						<span className="material-symbols-outlined">search</span>
 					</button>
-					<button
-						className="iconbtn"
-						title="Advanced search — everything in this connection (⌘⇧F)"
-						disabled={!connection}
-						onClick={openAdvancedSearch}
-					>
-						<span className="material-symbols-outlined">manage_search</span>
-					</button>
 					<button className="iconbtn refresh-btn" title="Refresh (⌘R)" disabled={!connection} onClick={() => refreshPane(pane.id)}>
 						<span className="material-symbols-outlined">refresh</span>
 					</button>

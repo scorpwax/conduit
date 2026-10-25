@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.32.2] — 2026-10-25
+
+### Changed
+- Removed the duplicate **Advanced Search** button from each pane's toolbar — it remains in the top navigation bar. The per-pane ⌘⇧F / Ctrl⇧F shortcut still opens Advanced Search scoped to the focused pane.
+
 ## [1.32.1] — 2026-10-25
 
 ### Fixed
