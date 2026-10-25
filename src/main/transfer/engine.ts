@@ -543,14 +543,19 @@ class TransferEngine extends EventEmitter {
         item.status = 'canceled'
         log.warn('transfer', `Canceled "${item.name}"`)
       } else {
+        // A provider flags files that exist but can't be fetched yet (e.g. a Frame.io
+        // file still processing) with code NOT_READY: skip it with a warning, keep the
+        // batch moving, and don't treat it as a connection problem. Retry still works.
+        const notReady = (err as { code?: string }).code === 'NOT_READY'
         item.status = 'error'
-        item.error = (err as Error).message
-        this.recordAdaptiveFailure(item.error)
+        item.error = notReady ? `Skipped — ${(err as Error).message}` : (err as Error).message
+        if (!notReady) this.recordAdaptiveFailure(item.error)
         const [srcName, dstName] = await Promise.all([
           this.resolveConnName(item.source.connectionId),
           this.resolveConnName(item.dest.connectionId)
         ])
-        log.error('transfer', `Failed "${item.name}": ${item.error}`, {
+        const logFn = notReady ? log.warn : log.error
+        logFn('transfer', notReady ? `Skipped "${item.name}": ${(err as Error).message}` : `Failed "${item.name}": ${item.error}`, {
           route: `${srcName} → ${dstName}`,
           bytes: item.bytesTotal
         })

@@ -2,6 +2,8 @@ import { Readable } from 'stream'
 import { posix } from 'path'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, FrameIoConfig, FolderSizeResult } from '@shared/types'
 import type { Provider } from './types'
+import { log } from '../logger'
+import { withRetry, sleep } from './cloudHttp'
 import { refreshTokens, type OAuthProviderConfig, type OAuthTokens } from '../oauth'
 
 const API = 'https://api.frame.io'
@@ -27,7 +29,7 @@ export const FRAMEIO_OAUTH: OAuthProviderConfig = {
   clientId: CLIENT_ID
 }
 
-type NodeKind = 'workspace' | 'project' | 'folder' | 'file'
+type NodeKind = 'workspace' | 'project' | 'folder' | 'stack' | 'file'
 interface CacheNode {
   id: string
   kind: NodeKind
@@ -35,21 +37,40 @@ interface CacheNode {
   rootFolderId?: string
 }
 
+/**
+ * Thrown when a file exists but Frame.io has no downloadable original for it yet
+ * (still processing, watermark-enforced, no download permission). The transfer
+ * engine recognizes `code === 'NOT_READY'` and logs a skip instead of a hard failure.
+ */
+export class FrameNotReadyError extends Error {
+  readonly code = 'NOT_READY'
+}
+
+/** Max simultaneous Frame.io API calls per connection (bulk transfers fan out wide). */
+const MAX_API_CONCURRENCY = 4
+
 /** Common structure Frame.io wraps all responses in. */
 interface FioResponse<T> { data: T; links?: { next?: string } }
 
 interface FioAsset {
   id: string
   name: string
-  type: 'file' | 'folder'
+  type: 'file' | 'folder' | 'version_stack'
   file_size?: number
   updated_at?: string
   inserted_at?: string
-  /** Presigned S3 download URL — present on fully-transcoded files. */
-  original?: string
-  /** H.264 proxy download URL — present when original isn't yet available. */
-  h264_720?: string
+  /** Processing state, e.g. 'created' | 'uploaded' | 'transcoded' | 'failed'. */
+  status?: string
+  /**
+   * V4 only returns media links when requested with `?include=media_links.original`.
+   * URLs are signed and expire after ~24h, so fetch a fresh one per transfer.
+   * Fields are null while processing, when watermarking is enforced, or when the
+   * caller lacks download permission.
+   */
+  media_links?: { original?: { download_url?: string | null; inline_url?: string | null } | null }
   /** Upload URLs returned when creating a file placeholder. */
+  /** Version stacks: the current (top) version, when present. */
+  head_version?: { file_size?: number } | null
   upload_urls?: Array<{ url: string; size: number }>
 }
 
@@ -94,28 +115,61 @@ export class FrameIoProvider implements Provider {
     this.cfg = connection.config as FrameIoConfig
   }
 
+  private refreshing: Promise<OAuthTokens> | null = null
+  private apiActive = 0
+  private apiWaiters: Array<() => void> = []
+
   private async token(): Promise<string> {
     if (this.tokens && this.tokens.expiresAt > Date.now() + 60_000) return this.tokens.accessToken
     if (!this.cfg.refreshToken) throw new Error('Not authorized — connect this Frame.io account first.')
-    this.tokens = await refreshTokens(FRAMEIO_OAUTH, this.cfg.refreshToken)
+    // Many parallel transfers can hit an expired token at once. Share one refresh —
+    // Adobe may rotate refresh tokens, so concurrent refreshes risk invalidating each other.
+    if (!this.refreshing) {
+      this.refreshing = refreshTokens(FRAMEIO_OAUTH, this.cfg.refreshToken).finally(() => { this.refreshing = null })
+    }
+    this.tokens = await this.refreshing
     return this.tokens.accessToken
   }
 
+  private async apiSlot<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.apiActive >= MAX_API_CONCURRENCY) await new Promise<void>((r) => this.apiWaiters.push(r))
+    this.apiActive++
+    try {
+      return await fn()
+    } finally {
+      this.apiActive--
+      this.apiWaiters.shift()?.()
+    }
+  }
+
+  /**
+   * Call the Frame.io API. Calls are capped at MAX_API_CONCURRENCY in flight per
+   * connection, and GETs retry on 429/5xx/network errors with backoff. Writes
+   * (POST/PATCH/DELETE) are not retried, to avoid duplicate side effects; a 401
+   * always triggers one token refresh + retry.
+   */
   private async req<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const tok = await this.token()
     const url = path.startsWith('http') ? path : `${API}${path}`
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${tok}`,
-        'Content-Type': 'application/json',
-        'x-api-version': '4'
-      },
-      body: body != null ? JSON.stringify(body) : undefined
+    return this.apiSlot(async () => {
+      const res = await withRetry(
+        async () => {
+          const tok = await this.token()
+          return fetch(url, {
+            method,
+            headers: {
+              Authorization: `Bearer ${tok}`,
+              'Content-Type': 'application/json',
+              'x-api-version': '4'
+            },
+            body: body != null ? JSON.stringify(body) : undefined
+          })
+        },
+        { onUnauthorized: () => { this.tokens = null }, maxAttempts: method === 'GET' ? 6 : 1 }
+      )
+      if (!res.ok) throw new Error(`Frame.io ${res.status} ${method} ${path}: ${await res.text()}`)
+      if (res.status === 204) return undefined as T
+      return (await res.json()) as T
     })
-    if (!res.ok) throw new Error(`Frame.io ${res.status} ${method} ${path}: ${await res.text()}`)
-    if (res.status === 204) return undefined as T
-    return (await res.json()) as T
   }
 
   private async getAccountId(): Promise<string> {
@@ -209,6 +263,11 @@ export class FrameIoProvider implements Provider {
       return this.listFolder(p, accountId, node.id)
     }
 
+    // Version stack: list its versions (shown as a folder of files)
+    if (node?.kind === 'stack') {
+      return this.listFolder(p, accountId, node.id, 'version_stacks')
+    }
+
     // Unknown path — try to resolve by listing parent then retry
     const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
     await this.list(parentPath)
@@ -217,16 +276,35 @@ export class FrameIoProvider implements Provider {
     return this.list(path)
   }
 
-  private async listFolder(parentPath: string, accountId: string, folderId: string): Promise<ListResult> {
-    const assets = await this.reqAll<FioAsset>(`/v4/accounts/${accountId}/folders/${folderId}/children`)
+  /**
+   * List a folder's (or version stack's) children. Version stacks are surfaced as
+   * directories containing their versions, so they can be browsed and transferred
+   * like any other folder instead of appearing as 0-byte files that can't download.
+   */
+  private async listFolder(
+    parentPath: string, accountId: string, folderId: string, parentType: 'folders' | 'version_stacks' = 'folders'
+  ): Promise<ListResult> {
+    const assets = await this.reqAll<FioAsset>(`/v4/accounts/${accountId}/${parentType}/${folderId}/children`)
+    // Frame.io allows several items with the same name in one folder. Disambiguate
+    // ("clip (2).mov") — otherwise they share one path, the cache keeps only the last
+    // one, and the transfer queue silently drops the duplicates as "already queued".
+    const seen = new Map<string, number>()
     const entries: FileEntry[] = assets.map(asset => {
-      const assetPath = `${parentPath}/${asset.name}`
-      this.nodes.set(assetPath, { id: asset.id, kind: asset.type === 'folder' ? 'folder' : 'file' })
+      const n = (seen.get(asset.name) ?? 0) + 1
+      seen.set(asset.name, n)
+      let name = asset.name
+      if (n > 1) {
+        const dot = asset.type === 'file' ? name.lastIndexOf('.') : -1
+        name = dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`
+      }
+      const assetPath = `${parentPath}/${name}`
+      const kind: NodeKind = asset.type === 'folder' ? 'folder' : asset.type === 'version_stack' ? 'stack' : 'file'
+      this.nodes.set(assetPath, { id: asset.id, kind })
       return {
-        name: asset.name,
+        name,
         path: assetPath,
-        kind: asset.type === 'folder' ? 'directory' : 'file',
-        size: asset.file_size ?? 0,
+        kind: kind === 'file' ? 'file' : 'directory',
+        size: kind === 'file' ? (asset.file_size ?? 0) : 0,
         modified: asset.updated_at ?? asset.inserted_at ?? null
       }
     })
@@ -251,35 +329,94 @@ export class FrameIoProvider implements Provider {
     return { name, path: p, kind: 'directory', size: 0, modified: null }
   }
 
+  /**
+   * Fetch a fresh signed download URL and open a ranged GET against it.
+   * Signed URLs expire (~24h) and are single-purpose, so this is called again on
+   * every reconnect rather than caching the URL.
+   */
+  private async openDownload(
+    accountId: string, fileId: string, p: string, offset: number
+  ): Promise<{ res: Response; size: number }> {
+    // V4 requires `include=media_links.original` to get a download URL at all.
+    // Retry with backoff in case the file really is still processing.
+    const fileUrl = `/v4/accounts/${accountId}/files/${fileId}?include=media_links.original`
+    let meta = await this.req<FioResponse<FioAsset>>('GET', fileUrl)
+    let downloadUrl = meta.data.media_links?.original?.download_url
+    // Short wait only: in a bulk transfer, unready files must not hog a transfer slot.
+    for (const delay of [2000, 5000]) {
+      if (downloadUrl || meta.data.status === 'failed') break
+      await sleep(delay)
+      meta = await this.req<FioResponse<FioAsset>>('GET', fileUrl)
+      downloadUrl = meta.data.media_links?.original?.download_url
+    }
+    if (!downloadUrl) {
+      const state = meta.data.status ? ` (Frame.io status: ${meta.data.status})` : ''
+      throw new FrameNotReadyError(
+        `Frame.io returned no download URL for "${p}"${state}. ` +
+        `This happens while a file is still processing, when the project has watermarking enforced, ` +
+        `or when your account lacks download permission on this project.`
+      )
+    }
+
+    const headers: Record<string, string> = {}
+    if (offset > 0) headers.Range = `bytes=${offset}-`
+    // The signed URL carries its own auth — never send the bearer token to it.
+    const res = await withRetry(() => fetch(downloadUrl!, { headers }))
+    if (!res.ok) throw new Error(`Frame.io download ${res.status}: ${res.statusText}`)
+    if (!res.body) throw new Error('Frame.io download returned no body')
+    if (offset > 0 && res.status !== 206) {
+      // A 200 would re-send the whole file from byte 0 and corrupt a resumed download.
+      await res.body.cancel().catch(() => undefined)
+      throw new Error(`Frame.io did not honor the resume request (HTTP ${res.status}) for "${p}"`)
+    }
+    const remaining = Number(res.headers.get('content-length') ?? 0)
+    const size = meta.data.file_size ?? (remaining > 0 ? offset + remaining : 0)
+    return { res, size }
+  }
+
   async createReadStream(path: string, offset = 0): Promise<{ stream: Readable; size: number }> {
     const p = this.norm(path)
     const accountId = await this.getAccountId()
     const node = this.nodes.get(p)
     if (!node || node.kind !== 'file') throw new Error(`Not a file: ${p}`)
+    const fileId = node.id
 
-    const res = await this.req<FioResponse<FioAsset>>('GET', `/v4/accounts/${accountId}/files/${node.id}`)
-    // `original` is the full-res presigned URL. It can be absent for files still
-    // being processed by Frame.io. Retry once after a short delay before giving up.
-    let downloadUrl = res.data.original
-    if (!downloadUrl) {
-      await new Promise((r) => setTimeout(r, 3000))
-      const retry = await this.req<FioResponse<FioAsset>>('GET', `/v4/accounts/${accountId}/files/${node.id}`)
-      downloadUrl = retry.data.original
+    // Initial open is eager so permission / processing errors surface immediately.
+    const first = await this.openDownload(accountId, fileId, p, offset)
+    const total = first.size
+    const name = p.slice(p.lastIndexOf('/') + 1)
+
+    // Self-healing stream: if the connection drops or the data ends short of the
+    // file's size, fetch a fresh signed URL and resume with a Range request from
+    // the last byte delivered. The consumer (e.g. a Wasabi multipart upload) just
+    // sees one continuous stream. Gives up after MAX_STALLS consecutive failures
+    // that made no progress.
+    const MAX_STALLS = 8
+    const self = this
+    async function* healing(): AsyncGenerator<Uint8Array> {
+      let pos = offset
+      let stalls = 0
+      let current: Response | null = first.res
+      while (true) {
+        try {
+          if (!current) current = (await self.openDownload(accountId, fileId, p, pos)).res
+          for await (const chunk of current.body as unknown as AsyncIterable<Uint8Array>) {
+            pos += chunk.length
+            stalls = 0
+            yield chunk
+          }
+          if (total > 0 && pos < total) throw new Error(`stream ended at ${pos} of ${total} bytes`)
+          return
+        } catch (err) {
+          current = null
+          if (++stalls > MAX_STALLS) throw err
+          log.warn('transfer', `Frame.io download of "${name}" interrupted at ${pos} bytes (${(err as Error).message}) — reconnecting (${stalls}/${MAX_STALLS})`)
+          await sleep(Math.min(1000 * 2 ** (stalls - 1), 30_000))
+        }
+      }
     }
-    if (!downloadUrl) throw new Error(`"${p}" has no download URL — the file may still be processing in Frame.io. Try again in a moment.`)
 
-    const headers: Record<string, string> = {}
-    if (offset > 0) headers.Range = `bytes=${offset}-`
-
-    const fetchRes = await fetch(downloadUrl, { headers })
-    if (!fetchRes.ok) throw new Error(`Frame.io download ${fetchRes.status}: ${fetchRes.statusText}`)
-    if (!fetchRes.body) throw new Error('Frame.io download returned no body')
-
-    const totalSize = offset > 0
-      ? (res.data.file_size ?? 0)
-      : (res.data.file_size ?? Number(fetchRes.headers.get('content-length') ?? 0))
-
-    return { stream: Readable.from(fetchRes.body as AsyncIterable<Uint8Array>), size: totalSize }
+    return { stream: Readable.from(healing()), size: total }
   }
 
   async writeFile(
@@ -300,6 +437,7 @@ export class FrameIoProvider implements Provider {
       parentNode = this.nodes.get(parentPath)
       if (!parentNode) throw new Error(`Destination folder not found: ${parentPath}`)
     }
+    if (parentNode.kind === 'stack') throw new Error('Cannot upload into a Frame.io version stack — upload to its parent folder instead.')
     const folderId = parentNode.kind === 'project'
       ? (parentNode.rootFolderId ?? parentNode.id)
       : parentNode.id
@@ -376,6 +514,7 @@ export class FrameIoProvider implements Provider {
       parentNode = this.nodes.get(parentPath)
       if (!parentNode) throw new Error(`Parent not found: ${parentPath}`)
     }
+    if (parentNode.kind === 'stack') throw new Error('Cannot create a folder inside a Frame.io version stack.')
     const folderId = parentNode.kind === 'project'
       ? (parentNode.rootFolderId ?? parentNode.id)
       : parentNode.id
@@ -397,6 +536,7 @@ export class FrameIoProvider implements Provider {
     const accountId = await this.getAccountId()
     const node = this.nodes.get(p)
     if (!node) return
+    if (node.kind === 'stack') throw new Error('Deleting a Frame.io version stack from Conduit is not supported — delete it in Frame.io.')
     if (kind === 'file') {
       await this.req<void>('DELETE', `/v4/accounts/${accountId}/files/${node.id}`)
     } else {
@@ -410,6 +550,7 @@ export class FrameIoProvider implements Provider {
     const accountId = await this.getAccountId()
     const node = this.nodes.get(p)
     if (!node) throw new Error(`Cannot rename — path not cached: ${p}`)
+    if (node.kind === 'stack') throw new Error('Renaming a Frame.io version stack from Conduit is not supported.')
     const endpoint = node.kind === 'file'
       ? `/v4/accounts/${accountId}/files/${node.id}`
       : `/v4/accounts/${accountId}/folders/${node.id}`
@@ -463,15 +604,19 @@ export class FrameIoProvider implements Provider {
     // BFS across all root folders, accumulating file sizes.
     let totalSize = 0
     let latestMs = 0
-    const queue: string[] = [...rootFolderIds]
+    const queue: Array<{ id: string; stack?: boolean }> = rootFolderIds.map(id => ({ id }))
 
     while (queue.length > 0) {
       const batch = queue.splice(0, 5)
-      await Promise.all(batch.map(async (id) => {
-        const assets = await this.reqAll<FioAsset>(`/v4/accounts/${accountId}/folders/${id}/children`)
+      await Promise.all(batch.map(async ({ id, stack }) => {
+        const assets = await this.reqAll<FioAsset>(
+          `/v4/accounts/${accountId}/${stack ? 'version_stacks' : 'folders'}/${id}/children`
+        )
         for (const asset of assets) {
           if (asset.type === 'folder') {
-            queue.push(asset.id)
+            queue.push({ id: asset.id })
+          } else if (asset.type === 'version_stack') {
+            queue.push({ id: asset.id, stack: true })
           } else {
             totalSize += asset.file_size ?? 0
             const ms = asset.updated_at ? new Date(asset.updated_at).getTime() : 0

@@ -12,6 +12,28 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.32.1] — 2026-10-25
+
+### Fixed
+- **Frame.io bulk transfers** — folder-sized Frame.io → Wasabi jobs are now much sturdier:
+  - API calls are capped at 4 in flight per connection, and reads retry on 429 / 5xx / network errors with backoff (previously one rate-limit response failed that file outright).
+  - Parallel transfers now share a single token refresh instead of each refreshing at once (Adobe can rotate refresh tokens, so racing refreshes could invalidate each other).
+  - **Duplicate names** — Frame.io lets a folder hold several items with the same name; the second and later ones used to be silently dropped from the queue as "already queued". They now list as `clip (2).mov`, `clip (3).mov`, … and all transfer.
+  - **Files that aren't downloadable yet** (still processing, watermark-enforced, no download permission) are now skipped quickly (~7 s wait instead of ~17 s) with a "Skipped" warning in the activity log, don't count toward Adaptive Connection Speed back-off, and can be re-run with the row's Retry button once Frame.io finishes. The rest of the batch keeps going.
+
+## [1.32.0] — 2026-10-25
+
+### Added
+- **Frame.io version stacks** — stacks now appear as folders containing their versions (they were previously listed as 0-byte files that couldn't download). Browse, transfer, and include them in folder-size calculation. Uploading into, renaming, or deleting a stack from Conduit is blocked with a clear message. (Uses the V4 `version_stacks/{id}/children` endpoint — verify against a live project.)
+
+### Changed
+- **Frame.io downloads are now resumable and self-healing** — if the connection drops (or data ends short of the file size) mid-transfer, Conduit fetches a fresh signed URL and resumes with a Range request from the last byte delivered, up to 8 consecutive stalls with backoff. Long Frame.io → Wasabi transfers survive network blips and expiring links without restarting. Resume requests that the server answers with a full 200 are rejected rather than silently corrupting the file. Download URL fetches now use the shared retry/backoff helper (429/5xx).
+
+## [1.31.2] — 2026-10-25
+
+### Fixed
+- **Frame.io → anywhere: "has no download URL" error** — Frame.io V4 only returns download links when asked for them with `include=media_links.original`; Conduit was reading a V2-era `original` field that V4 never sends, so *every* download failed even for fully processed files. Downloads now request and use `media_links.original.download_url`. If a link is genuinely missing (still processing, watermarking enforced, or no download permission) Conduit retries with backoff (2 s / 5 s / 10 s) and the error now reports Frame.io's file status and the likely causes.
+
 ## [1.31.1] — 2026-10-14
 
 ### Fixed
