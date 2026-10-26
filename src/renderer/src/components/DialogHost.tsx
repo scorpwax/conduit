@@ -62,13 +62,24 @@ export function DialogHost(): JSX.Element | null {
 
   if (active.kind === 'choice') {
     const { opts } = active
+    const detailed = opts.choices.some((c) => c.description)
     return (
       <div className="modal-overlay" onMouseDown={() => resolve(null)}>
-        <div className="dialog-card" onMouseDown={(e) => e.stopPropagation()}>
+        <div className={`dialog-card${detailed ? ' wide-choice' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
           <h2 className="dialog-title">{opts.title}</h2>
           {opts.fileName && <div className="dialog-file">{opts.fileName}</div>}
-          {opts.message && <div className="dialog-warning">{opts.message}</div>}
-          <div className="dialog-actions dialog-choice-actions">
+          {opts.message && <div className={detailed ? 'dialog-message' : 'dialog-warning'}>{opts.message}</div>}
+          {detailed && (
+            <ul className="dialog-options">
+              {opts.choices.map((c) => (
+                <li key={c.value}>
+                  <b>{c.label}</b>
+                  <span>{c.description}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className={`dialog-actions dialog-choice-actions${detailed ? ' one-row' : ''}`}>
             <button className="btn ghost" onClick={() => resolve(null)}>Cancel</button>
             {opts.choices.map((c) => (
               <button

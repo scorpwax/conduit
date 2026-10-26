@@ -12,10 +12,18 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.33.1] — 2026-10-26
+
+### Changed
+- **Clear Login Cache dialog** — all buttons now sit on one row, and each option has its own plain-language explanation (including that Google/Microsoft/Dropbox sign in through your regular browser, which Conduit can't clear).
+
+### Fixed
+- **Frame.io: deleting folders failed** — deletes now work for folders, files and **projects** (a project was being sent to the folder endpoint), resolve items Conduit hasn't listed yet, and clear stale cache entries below a deleted folder. Bodyless requests no longer send a JSON `Content-Type`. Frame.io error responses are now shown as readable messages (e.g. "Forbidden — …") instead of raw JSON. Deleting a whole workspace or version stack from Conduit is blocked with an explanation.
+
 ## [1.33.0] — 2026-10-26
 
 ### Added
-- **Clear Login Cache** (Settings → Accounts & Sign-in) — wipes the browser session used for Adobe / Frame.io (and Google, Microsoft, Dropbox) sign-ins so the next login starts fresh (fixes landing in the wrong Adobe account/organization), and drops in-memory cloud sessions. Optionally also signs out those cloud connections (forgets their saved refresh tokens). Saved connections, S3/SFTP/FTP/SMB passwords and settings are never touched.
+- **Clear Login Cache** (Settings → Accounts & Sign-in) — wipes the browser session used for the Adobe / Frame.io sign-in window so the next login starts fresh (fixes landing in the wrong Adobe account/organization), and drops in-memory cloud sessions. Optionally also signs out those cloud connections (forgets their saved refresh tokens). Saved connections, S3/SFTP/FTP/SMB passwords and settings are never touched.
 - **Frame.io: create workspaces and projects** — New Folder at the account root now creates a workspace; inside a workspace it creates a project; inside a project/folder it creates a folder.
 - **Custom CA certificate** (optional, per S3/Wasabi connection) for networks whose proxy or antivirus re-signs HTTPS with a root Conduit doesn't know.
 

@@ -31,7 +31,12 @@ export interface ChoiceOptions {
   title: string
   message?: string
   fileName?: string
-  choices: Array<{ label: string; value: string; danger?: boolean; primary?: boolean }>
+  /**
+   * When any choice has a `description`, the dialog switches to a roomier layout:
+   * neutral intro text, a labelled explanation for each option, and every button
+   * on a single row.
+   */
+  choices: Array<{ label: string; value: string; danger?: boolean; primary?: boolean; description?: string }>
 }
 
 export type ActiveDialog =

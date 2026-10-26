@@ -46,6 +46,18 @@ export class FrameNotReadyError extends Error {
   readonly code = 'NOT_READY'
 }
 
+/** Pull the human-readable `errors[].detail` out of a Frame.io error body, if it has one. */
+function apiErrorDetail(body: string): string {
+  try {
+    const errs = (JSON.parse(body) as { errors?: Array<{ title?: string; detail?: string }> }).errors
+    const msg = errs?.map((e) => [e.title, e.detail].filter(Boolean).join(' — ')).filter(Boolean).join('; ')
+    if (msg) return msg
+  } catch {
+    // not JSON — fall through to the raw body
+  }
+  return body
+}
+
 /** Max simultaneous Frame.io API calls per connection (bulk transfers fan out wide). */
 const MAX_API_CONCURRENCY = 4
 
@@ -158,7 +170,7 @@ export class FrameIoProvider implements Provider {
             method,
             headers: {
               Authorization: `Bearer ${tok}`,
-              'Content-Type': 'application/json',
+              ...(body != null ? { 'Content-Type': 'application/json' } : {}),
               'x-api-version': '4'
             },
             body: body != null ? JSON.stringify(body) : undefined
@@ -166,7 +178,7 @@ export class FrameIoProvider implements Provider {
         },
         { onUnauthorized: () => { this.tokens = null }, maxAttempts: 6, rateLimitOnly: method !== 'GET' }
       )
-      if (!res.ok) throw new Error(`Frame.io ${res.status} ${method} ${path}: ${await res.text()}`)
+      if (!res.ok) throw new Error(`Frame.io ${res.status} ${method} ${path}: ${apiErrorDetail(await res.text())}`)
       if (res.status === 204) return undefined as T
       return (await res.json()) as T
     })
@@ -553,18 +565,36 @@ export class FrameIoProvider implements Provider {
     throw new Error('Frame.io files are created by uploading — drag a file in or transfer one from another connection.')
   }
 
-  async delete(path: string, kind: 'file' | 'directory'): Promise<void> {
+  async delete(path: string, _kind: 'file' | 'directory'): Promise<void> {
     const p = this.norm(path)
     const accountId = await this.getAccountId()
-    const node = this.nodes.get(p)
-    if (!node) return
-    if (node.kind === 'stack') throw new Error('Deleting a Frame.io version stack from Conduit is not supported — delete it in Frame.io.')
-    if (kind === 'file') {
-      await this.req<void>('DELETE', `/v4/accounts/${accountId}/files/${node.id}`)
-    } else {
-      await this.req<void>('DELETE', `/v4/accounts/${accountId}/folders/${node.id}`)
+    let node = this.nodes.get(p)
+    if (!node) {
+      // Not cached (e.g. Conduit restarted) — list the parent so we can resolve its ID.
+      const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+      await this.list(parentPath)
+      node = this.nodes.get(p)
     }
-    this.nodes.delete(p)
+    if (!node) throw Object.assign(new Error(`Not found in Frame.io: ${p}`), { code: 'ENOENT' })
+
+    switch (node.kind) {
+      case 'workspace':
+        throw new Error('Deleting a whole Frame.io workspace from Conduit is not supported — do it in Frame.io.')
+      case 'stack':
+        throw new Error('Deleting a Frame.io version stack from Conduit is not supported — delete it in Frame.io.')
+      case 'project':
+        await this.req<void>('DELETE', `/v4/accounts/${accountId}/projects/${node.id}`)
+        break
+      case 'folder':
+        await this.req<void>('DELETE', `/v4/accounts/${accountId}/folders/${node.id}`)
+        break
+      default:
+        await this.req<void>('DELETE', `/v4/accounts/${accountId}/files/${node.id}`)
+    }
+    // Drop this path and anything cached beneath it.
+    for (const key of [...this.nodes.keys()]) {
+      if (key === p || key.startsWith(`${p}/`)) this.nodes.delete(key)
+    }
   }
 
   async rename(path: string, newName: string): Promise<void> {

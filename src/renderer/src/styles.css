@@ -4361,6 +4361,57 @@ kbd {
     gap: 8px;
 }
 
+/* Detailed variant: explanation per option, all buttons on one line. */
+.dialog-card.wide-choice {
+    width: 560px;
+}
+
+.dialog-message {
+    margin: 0 0 14px;
+    color: var(--text-dim, var(--text));
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.dialog-options {
+    list-style: none;
+    margin: 0 0 20px;
+    padding: 0;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dialog-options li {
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.dialog-options li b {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 13px;
+}
+
+.dialog-options li span {
+    color: var(--text-dim, var(--text));
+}
+
+.dialog-choice-actions.one-row {
+    flex-wrap: nowrap;
+}
+
+.dialog-choice-actions.one-row .btn {
+    min-width: 0;
+    white-space: nowrap;
+    padding: 8px 14px;
+}
+
 /* ── Move To ─────────────────────────────────────────────────────────────────── */
 .move-to-card {
     min-width: 380px;

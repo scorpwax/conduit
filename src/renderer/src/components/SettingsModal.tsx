@@ -75,12 +75,26 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
     const choice = await choiceDialog({
       title: 'Clear Login Cache',
       message:
-        'Clears the saved sign-in browser session used for Adobe / Frame.io (and Google, Microsoft, Dropbox) logins, ' +
-        'so the next sign-in starts fresh — useful if you land in the wrong Adobe account or organization. ' +
-        'Your saved connections, S3/SFTP/FTP/SMB passwords and settings are not touched.',
+        'Use this if Frame.io signs you in to the wrong Adobe account or organization, or a sign-in seems stuck. ' +
+        'Your saved connections, S3/SFTP/FTP/SMB passwords and settings are never touched.',
       choices: [
-        { label: 'Clear sign-in session only', value: 'session', primary: true },
-        { label: 'Also sign out cloud connections', value: 'signout', danger: true }
+        {
+          label: 'Clear session only',
+          value: 'session',
+          primary: true,
+          description:
+            'Forgets the Adobe login remembered by Conduit’s sign-in window, so the next time you authorize Frame.io ' +
+            'you can pick a different account. Connections that are already signed in keep working. ' +
+            '(Google, Microsoft and Dropbox sign in through your regular web browser, which Conduit can’t clear.)'
+        },
+        {
+          label: 'Also sign out connections',
+          value: 'signout',
+          danger: true,
+          description:
+            'Does the above, and also removes the saved sign-in from every Frame.io, Google Drive, OneDrive and Dropbox ' +
+            'connection. Each one will ask you to Authorize again the next time you use it.'
+        }
       ]
     })
     if (!choice) return
@@ -448,7 +462,7 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
               <div className="settings-label">
                 <span>Clear Login Cache</span>
                 <span className="settings-hint">
-                  Reset the Adobe / cloud sign-in session — fixes "wrong account" or stuck sign-ins for Frame.io and other cloud logins
+                  Reset the Adobe sign-in session, or sign out cloud connections — fixes "wrong account" or stuck Frame.io sign-ins
                 </span>
               </div>
               <button className="btn ghost" disabled={clearingLogin} onClick={() => void clearLoginCache()}>
