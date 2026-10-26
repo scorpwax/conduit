@@ -8,7 +8,7 @@ import { FileList } from './FileList'
 import { ContextMenu } from './ContextMenu'
 import { getDrag, clearDrag } from '../lib/drag'
 import { setPaneDrag, getPaneDrag, clearPaneDrag } from '../lib/paneDrag'
-import { promptDialog } from '../lib/dialog'
+import { promptDialog, confirmDialog } from '../lib/dialog'
 import { ConnIcon, connColor } from '../lib/connMeta'
 import { connPathKey } from '../lib/connectionKey'
 
@@ -160,13 +160,23 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 	async function newFolder(): Promise<void> {
 		if (!pane.connectionId) return
 		const name = await promptDialog({ title: 'New Folder', placeholder: 'Folder name', confirmText: 'Create' })
-		if (name) await createFolderInPane(pane.id, name)
+		if (!name) return
+		try {
+			await createFolderInPane(pane.id, name)
+		} catch (err) {
+			await confirmDialog({ title: `Couldn't create "${name}"`, warning: friendlyError(err), confirmText: 'OK' })
+		}
 	}
 
 	async function newFile(): Promise<void> {
 		if (!pane.connectionId) return
 		const name = await promptDialog({ title: 'New File', placeholder: 'File name', confirmText: 'Create' })
-		if (name) await createFileInPane(pane.id, name)
+		if (!name) return
+		try {
+			await createFileInPane(pane.id, name)
+		} catch (err) {
+			await confirmDialog({ title: `Couldn't create "${name}"`, warning: friendlyError(err), confirmText: 'OK' })
+		}
 	}
 
 	const showHidden = useStore((s) => s.showHidden)
@@ -465,6 +475,11 @@ export function Pane({ pane, index, isOnly, onNewConnection, onEditConnection, o
 			)}
 		</div>
 	)
+}
+
+/** Strip Electron's "Error invoking remote method '…': Error:" wrapper from IPC errors. */
+function friendlyError(err: unknown): string {
+	return ((err as Error)?.message ?? String(err)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '')
 }
 
 type ConnStatus = 'none' | 'loading' | 'error' | 'connected'

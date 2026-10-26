@@ -12,6 +12,8 @@ import { shell } from 'electron'
  * OS sees it — so no URI scheme registration is needed and DaVinci Resolve (or
  * any other Electron app) cannot steal the callback.
  */
+export const OAUTH_PARTITION = 'persist:conduit-oauth'
+
 export async function runOAuthInWindow(
   cfg: OAuthProviderConfig,
   redirectUri: string
@@ -36,7 +38,9 @@ export async function runOAuthInWindow(
       width: 560,
       height: 720,
       title: 'Sign in with Adobe',
-      webPreferences: { nodeIntegration: false, contextIsolation: true }
+      // Dedicated persistent partition so the Adobe sign-in cookies live apart from the
+      // app's own session and can be wiped by Settings → Clear Login Cache.
+      webPreferences: { nodeIntegration: false, contextIsolation: true, partition: OAUTH_PARTITION }
     })
 
     let settled = false

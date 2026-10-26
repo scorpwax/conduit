@@ -89,6 +89,7 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
   const [endpoint, setEndpoint] = useState(s3Cfg.endpoint ?? '')
   const [prefix, setPrefix] = useState(s3Cfg.prefix ?? '')
   const [forcePathStyle, setForcePathStyle] = useState(s3Cfg.forcePathStyle ?? false)
+  const [caCertPath, setCaCertPath] = useState(s3Cfg.caCertPath ?? '')
 
   // Wasabi (stored as an S3 config with endpoint baked in)
   const waCfg = (defaults?.config ?? {}) as S3Config
@@ -171,7 +172,8 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
         secretAccessKey,
         endpoint: endpoint.trim() || undefined,
         prefix: prefix.trim() || undefined,
-        forcePathStyle
+        forcePathStyle,
+        caCertPath: caCertPath.trim() || undefined
       } satisfies S3Config
     } else if (type === 'wasabi') {
       base.config = {
@@ -181,7 +183,8 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
         secretAccessKey: waSecret,
         endpoint: endpointForRegion(waRegion),
         forcePathStyle: true,
-        prefix: waPrefix.trim() || undefined
+        prefix: waPrefix.trim() || undefined,
+        caCertPath: caCertPath.trim() || undefined
       } satisfies S3Config
     } else if (type === 'sftp') {
       base.config = {
@@ -458,6 +461,32 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
                 Force path-style addressing (needed for most non-AWS endpoints)
               </label>
             </div>
+            <div className="field">
+              <label>Custom CA certificate (optional)</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={caCertPath}
+                  onChange={(e) => setCaCertPath(e.target.value)}
+                  placeholder="/path/to/company-root-ca.pem"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => {
+                    void window.conduit.dialog
+                      .pickFile([{ name: 'Certificate (PEM)', extensions: ['pem', 'crt', 'cer'] }])
+                      .then((p) => p && setCaCertPath(p))
+                  }}
+                >
+                  Browse…
+                </button>
+              </div>
+              <div className="hint">
+                Only needed if you see "self signed certificate in certificate chain" — i.e. your network or
+                antivirus re-signs HTTPS traffic. Conduit already trusts your operating system's certificates.
+              </div>
+            </div>
           </>
         )}
 
@@ -500,6 +529,32 @@ export function ConnectionModal({ existing, importDefaults, onClose, onSaved }: 
               <div className="hint">
                 Connects to <code>{endpointForRegion(waRegion || 'us-east-1')}</code> (path-style, set
                 automatically).
+              </div>
+            </div>
+            <div className="field">
+              <label>Custom CA certificate (optional)</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={caCertPath}
+                  onChange={(e) => setCaCertPath(e.target.value)}
+                  placeholder="/path/to/company-root-ca.pem"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => {
+                    void window.conduit.dialog
+                      .pickFile([{ name: 'Certificate (PEM)', extensions: ['pem', 'crt', 'cer'] }])
+                      .then((p) => p && setCaCertPath(p))
+                  }}
+                >
+                  Browse…
+                </button>
+              </div>
+              <div className="hint">
+                Only needed if you see "self signed certificate in certificate chain" — i.e. your network or
+                antivirus re-signs HTTPS traffic. Conduit already trusts your operating system's certificates.
               </div>
             </div>
           </>

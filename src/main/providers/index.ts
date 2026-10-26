@@ -85,6 +85,16 @@ export function invalidateProvider(connectionId: string): void {
   cache.delete(connectionId)
 }
 
+/** Drop live providers of the given connection types (e.g. OAuth ones) without touching others. */
+export function invalidateProvidersOfType(types: string[]): void {
+  for (const [id, { provider }] of [...cache.entries()]) {
+    if (types.includes(provider.connection.type)) {
+      closeProvider(provider)
+      cache.delete(id)
+    }
+  }
+}
+
 /** Return the ids of all currently cached (live) non-local connections. */
 export function getActiveConnectionIds(): string[] {
   return [...cache.keys()].filter((id) => id !== BUILTIN_LOCAL_ID)

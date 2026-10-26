@@ -43,6 +43,8 @@ export const IPC = {
   fsMoveToDir: 'fs:moveToDir',
   transferRetry: 'transfer:retry',
   dialogPickFolder: 'dialog:pickFolder',
+  dialogPickFile: 'dialog:pickFile',
+  authClearCache: 'auth:clearCache',
 
   connectionsRevealMount: 'connections:revealMount',
   connectionsCreateDesktopShortcut: 'connections:createDesktopShortcut',

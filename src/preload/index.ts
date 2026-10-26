@@ -139,8 +139,14 @@ const api = {
       return () => ipcRenderer.removeListener(IPC.evtVerifyDone, listener)
     }
   },
+  auth: {
+    clearCache: (signOut: boolean): Promise<{ signedOut: string[] }> =>
+      ipcRenderer.invoke(IPC.authClearCache, { signOut })
+  },
   dialog: {
-    pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogPickFolder)
+    pickFolder: (): Promise<string | null> => ipcRenderer.invoke(IPC.dialogPickFolder),
+    pickFile: (filters?: { name: string; extensions: string[] }[]): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.dialogPickFile, filters)
   },
   logs: {
     getRecent: (limit?: number): Promise<LogEntry[]> => ipcRenderer.invoke(IPC.logsGetRecent, limit),

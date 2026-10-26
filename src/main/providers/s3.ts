@@ -18,6 +18,8 @@ import {
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
+import { readFileSync } from 'fs'
+import { caListWithFile } from '../tlsTrust'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, S3Config, TreeNode, FolderTreeResult, FolderSizeResult } from '@shared/types'
 import { isJunkEntryName } from '../junkFiles'
 import { computeMultipartPartSize } from '@shared/transferConstants'
@@ -50,7 +52,15 @@ export class S3Provider implements Provider {
     // maxSockets 75: uploads run queueSize=6 parts × 2 concurrent files = 12 upload
     // connections; downloads are single-stream × 2 concurrent files = 2 connections;
     // remainder covers list/stat/mkdir/delete headroom.
-    const agent = new https.Agent({ keepAlive: true, maxSockets: 75 })
+    let ca: string[] | undefined
+    if (this.cfg.caCertPath) {
+      try {
+        ca = caListWithFile(readFileSync(this.cfg.caCertPath, 'utf-8'))
+      } catch (err) {
+        throw new Error(`Cannot read custom CA certificate "${this.cfg.caCertPath}": ${(err as Error).message}`)
+      }
+    }
+    const agent = new https.Agent({ keepAlive: true, maxSockets: 75, ...(ca ? { ca } : {}) })
     this.client = new S3Client({
       region: this.cfg.region,
       endpoint: this.cfg.endpoint || undefined,

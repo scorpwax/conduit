@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification, Tray, Menu, powerSaveBlocker } from 'electron'
+import { app, session, shell, BrowserWindow, ipcMain, dialog, nativeImage, Notification, Tray, Menu, powerSaveBlocker } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
@@ -13,19 +13,20 @@ import { syncEngine } from './sync/engine'
 import { logger, log } from './logger'
 import { getSettings, updateSettings } from './settings'
 import { connectionStore } from './store'
-import { getProvider, createProvider, invalidateProvider, closeAllProviders, getActiveConnectionIds } from './providers'
+import { invalidateProvidersOfType, getProvider, createProvider, invalidateProvider, closeAllProviders, getActiveConnectionIds } from './providers'
 import { listDrives } from './drives'
 import { mountS3, unmountAll } from './rclone'
 import { transferEngine } from './transfer/engine'
 import { verifyEngine } from './verify'
 import { isJunkEntryName, isHiddenJunkEntryName } from './junkFiles'
 import { previewFile } from './preview'
-import { runOAuth, runOAuthInWindow, handleCustomSchemeCallback } from './oauth'
+import { runOAuth, runOAuthInWindow, handleCustomSchemeCallback, OAUTH_PARTITION } from './oauth'
 import { GOOGLE_OAUTH } from './providers/gdrive'
 import { MICROSOFT_OAUTH } from './providers/onedrive'
 import { DROPBOX_OAUTH } from './providers/dropbox'
 import { FRAMEIO_OAUTH, FRAMEIO_REDIRECT_URI, FRAMEIO_PROTOCOL_SCHEME } from './providers/frameio'
 import { checkForUpdates } from './updater'
+import { trustSystemCertificates } from './tlsTrust'
 
 let mainWindow: BrowserWindow | null = null
 let speedGraphWindow: BrowserWindow | null = null
@@ -753,6 +754,43 @@ function registerIpc(): void {
     return res.canceled ? null : res.filePaths[0]
   })
 
+  /**
+   * Settings → Clear Login Cache. Always wipes the sign-in browser session (Adobe
+   * etc. cookies) and drops in-memory OAuth providers; with `signOut` it also forgets
+   * the saved refresh tokens so those connections must re-authorize.
+   */
+  ipcMain.handle(
+    IPC.authClearCache,
+    async (_e, args: { signOut: boolean }): Promise<{ signedOut: string[] }> => {
+      const oauthTypes = ['frameio', 'gdrive', 'onedrive', 'dropbox']
+      const ses = session.fromPartition(OAUTH_PARTITION)
+      await ses.clearStorageData()
+      await ses.clearCache()
+      // Versions before 1.33 ran the Adobe sign-in in the app's default session.
+      const legacy = await session.defaultSession.cookies.get({})
+      await Promise.all(
+        legacy
+          .filter((c) => /adobe|frame\.io/i.test(c.domain ?? ''))
+          .map((c) =>
+            session.defaultSession.cookies.remove(
+              `https://${(c.domain ?? '').replace(/^\./, '')}${c.path ?? '/'}`,
+              c.name
+            )
+          )
+      )
+      let signedOut: string[] = []
+      if (args.signOut) signedOut = await connectionStore.clearRefreshTokens(oauthTypes)
+      invalidateProvidersOfType(oauthTypes)
+      log.info('connection', `Cleared login cache${args.signOut ? `; signed out ${signedOut.length} connection(s)` : ''}`)
+      return { signedOut }
+    }
+  )
+
+  ipcMain.handle(IPC.dialogPickFile, async (_e, filters?: { name: string; extensions: string[] }[]) => {
+    const res = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile'], filters })
+    return res.canceled ? null : res.filePaths[0]
+  })
+
   ipcMain.handle(IPC.connectionsExportProfile, async (_e, id: string) => {
     const all = await connectionStore.getAll()
     const conn = all.find((c) => c.id === id)
@@ -1349,6 +1387,7 @@ function buildTrayMenu(): void {
 }
 
 app.whenReady().then(async () => {
+  trustSystemCertificates()
   // In dev, show the real app icon in the Dock (packaged builds get it from the
   // app bundle via electron-builder's build/icon.png).
   if (!app.isPackaged && process.platform === 'darwin' && app.dock) {

@@ -21,7 +21,8 @@ const SECRET_FIELDS: Record<string, string[]> = {
   webdav: ['password'],
   gdrive: ['clientSecret', 'refreshToken'],
   onedrive: ['clientSecret', 'refreshToken'],
-  dropbox: ['clientSecret', 'refreshToken']
+  dropbox: ['clientSecret', 'refreshToken'],
+  frameio: ['refreshToken']
 }
 
 interface StoredSecret {
@@ -54,10 +55,37 @@ async function load(): Promise<PersistShape> {
       secrets: parsed.secrets ?? {},
       bookmarks: parsed.bookmarks ?? []
     }
+    if (migratePlaintextSecrets(cache)) await persist()
   } catch {
     cache = { version: 1, connections: [], secrets: {}, bookmarks: [] }
   }
   return cache
+}
+
+/**
+ * Frame.io connections used to keep their refresh token as plain JSON in the
+ * connection config (the type wasn't in SECRET_FIELDS). Move any such token into
+ * the encrypted secrets blob. Returns true if anything changed.
+ */
+function migratePlaintextSecrets(state: PersistShape): boolean {
+  let changed = false
+  for (const conn of state.connections) {
+    const fields = secretFields(conn.type)
+    if (fields.length === 0) continue
+    const config = conn.config as unknown as Record<string, unknown>
+    let secrets: Record<string, string> | null = null
+    for (const f of fields) {
+      const val = config[f]
+      if (typeof val === 'string' && val.length > 0) {
+        secrets ??= readSecrets(state, conn.id)
+        if (!secrets[f]) secrets[f] = val
+        config[f] = ''
+        changed = true
+      }
+    }
+    if (secrets) state.secrets[conn.id] = { enc: encrypt(JSON.stringify(secrets)) }
+  }
+  return changed
 }
 
 async function persist(): Promise<void> {
@@ -157,6 +185,28 @@ export const connectionStore = {
     }
     await persist()
     return sanitize(conn)
+  },
+
+  /**
+   * Forget the saved OAuth refresh token for every connection of the given types,
+   * so each one asks to be re-authorized. Connection names/settings are kept.
+   * Returns the names of the connections that were signed out.
+   */
+  async clearRefreshTokens(types: string[]): Promise<string[]> {
+    const state = await load()
+    const cleared: string[] = []
+    for (const conn of state.connections) {
+      if (!types.includes(conn.type)) continue
+      const config = conn.config as unknown as Record<string, unknown>
+      const secrets = readSecrets(state, conn.id)
+      if (!secrets.refreshToken && !config.refreshToken) continue
+      delete secrets.refreshToken
+      config.refreshToken = ''
+      state.secrets[conn.id] = { enc: encrypt(JSON.stringify(secrets)) }
+      cleared.push(conn.name)
+    }
+    if (cleared.length) await persist()
+    return cleared
   },
 
   async remove(id: string): Promise<void> {

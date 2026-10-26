@@ -164,7 +164,7 @@ export class FrameIoProvider implements Provider {
             body: body != null ? JSON.stringify(body) : undefined
           })
         },
-        { onUnauthorized: () => { this.tokens = null }, maxAttempts: method === 'GET' ? 6 : 1 }
+        { onUnauthorized: () => { this.tokens = null }, maxAttempts: 6, rateLimitOnly: method !== 'GET' }
       )
       if (!res.ok) throw new Error(`Frame.io ${res.status} ${method} ${path}: ${await res.text()}`)
       if (res.status === 204) return undefined as T
@@ -502,11 +502,26 @@ export class FrameIoProvider implements Provider {
     await Promise.all(inFlight)
   }
 
+  /**
+   * Create a container at `path`. What that means depends on where it is:
+   *   - account root  → a new workspace
+   *   - in a workspace → a new project
+   *   - in a project / folder → a new folder
+   */
   async mkdir(path: string): Promise<void> {
     const p = this.norm(path)
+    if (!p) throw new Error('Folder name is required')
     const accountId = await this.getAccountId()
     const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p
     const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+
+    if (parentPath === '') {
+      const res = await this.req<FioResponse<FioWorkspace>>(
+        'POST', `/v4/accounts/${accountId}/workspaces`, { data: { name } }
+      )
+      this.nodes.set(name, { id: res.data.id, kind: 'workspace' })
+      return
+    }
 
     let parentNode = this.nodes.get(parentPath)
     if (!parentNode) {
@@ -515,20 +530,27 @@ export class FrameIoProvider implements Provider {
       if (!parentNode) throw new Error(`Parent not found: ${parentPath}`)
     }
     if (parentNode.kind === 'stack') throw new Error('Cannot create a folder inside a Frame.io version stack.')
+    if (parentNode.kind === 'file') throw new Error(`"${parentPath}" is a file, not a folder.`)
+
+    if (parentNode.kind === 'workspace') {
+      const res = await this.req<FioResponse<FioProject>>(
+        'POST', `/v4/accounts/${accountId}/workspaces/${parentNode.id}/projects`, { data: { name } }
+      )
+      this.nodes.set(p, { id: res.data.id, kind: 'project', rootFolderId: res.data.root_folder_id })
+      return
+    }
+
     const folderId = parentNode.kind === 'project'
       ? (parentNode.rootFolderId ?? parentNode.id)
       : parentNode.id
-
     const res = await this.req<FioResponse<FioAsset>>(
-      'POST',
-      `/v4/accounts/${accountId}/folders/${folderId}/folders`,
-      { data: { name } }
+      'POST', `/v4/accounts/${accountId}/folders/${folderId}/folders`, { data: { name } }
     )
     this.nodes.set(p, { id: res.data.id, kind: 'folder' })
   }
 
   async createFile(path: string): Promise<void> {
-    // Frame.io files are always created with writeFile (requires size); no-op for zero-byte placeholder
+    throw new Error('Frame.io files are created by uploading — drag a file in or transfer one from another connection.')
   }
 
   async delete(path: string, kind: 'file' | 'directory'): Promise<void> {

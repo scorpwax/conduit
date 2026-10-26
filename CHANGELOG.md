@@ -12,6 +12,20 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.33.0] — 2026-10-26
+
+### Added
+- **Clear Login Cache** (Settings → Accounts & Sign-in) — wipes the browser session used for Adobe / Frame.io (and Google, Microsoft, Dropbox) sign-ins so the next login starts fresh (fixes landing in the wrong Adobe account/organization), and drops in-memory cloud sessions. Optionally also signs out those cloud connections (forgets their saved refresh tokens). Saved connections, S3/SFTP/FTP/SMB passwords and settings are never touched.
+- **Frame.io: create workspaces and projects** — New Folder at the account root now creates a workspace; inside a workspace it creates a project; inside a project/folder it creates a folder.
+- **Custom CA certificate** (optional, per S3/Wasabi connection) for networks whose proxy or antivirus re-signs HTTPS with a root Conduit doesn't know.
+
+### Fixed
+- **"self signed certificate in certificate chain" on Wasabi/S3** — Conduit now trusts the operating system's certificate store in addition to Node's bundled list, matching what other apps do. This is the usual cause on corporate proxies (Zscaler, etc.) and antivirus with HTTPS scanning. Applies to S3/Wasabi, Frame.io and all OAuth/fetch traffic.
+- **Frame.io folder creation appeared to do nothing** — the request used the wrong ID at workspace level, and any error was swallowed. New Folder / New File failures now show a dialog with the real reason on every connection type; "New File" on Frame.io explains that files are created by uploading.
+- **Frame.io write calls retry on rate limiting** — create/rename/delete now retry on 429 (safe: the request was rejected unprocessed) instead of failing.
+- **Frame.io refresh token was stored unencrypted** — it is now kept in the encrypted keychain blob like the other cloud providers; existing tokens are migrated automatically on first launch (no re-login needed).
+- The Adobe sign-in window now uses its own session partition (so it can be cleared without affecting the rest of the app).
+
 ## [1.32.2] — 2026-10-25
 
 ### Changed

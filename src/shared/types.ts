@@ -31,6 +31,8 @@ export interface S3Config {
   forcePathStyle?: boolean
   /** Optional prefix to treat as the connection root. */
   prefix?: string
+  /** Optional path to a PEM file with an extra trusted CA (for networks that re-sign HTTPS). */
+  caCertPath?: string
 }
 
 export interface SftpConfig {

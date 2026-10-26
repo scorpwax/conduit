@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { AppSettings, FileListColumnKey } from '@shared/types'
 import { useStore } from '../store'
+import { choiceDialog, confirmDialog } from '../lib/dialog'
 
 const EXPLORER_COLUMNS: { key: FileListColumnKey; label: string; hint?: string }[] = [
   { key: 'size', label: 'Size' },
@@ -67,7 +68,38 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
   const [speedInfoOpen, setSpeedInfoOpen] = useState(false)
   const [adaptiveInfoOpen, setAdaptiveInfoOpen] = useState(false)
   const [lowBandwidthInfoOpen, setLowBandwidthInfoOpen] = useState(false)
+  const [clearingLogin, setClearingLogin] = useState(false)
   const [versions, setVersions] = useState<{ app: string; electron: string; chrome: string; node: string } | null>(null)
+
+  async function clearLoginCache(): Promise<void> {
+    const choice = await choiceDialog({
+      title: 'Clear Login Cache',
+      message:
+        'Clears the saved sign-in browser session used for Adobe / Frame.io (and Google, Microsoft, Dropbox) logins, ' +
+        'so the next sign-in starts fresh — useful if you land in the wrong Adobe account or organization. ' +
+        'Your saved connections, S3/SFTP/FTP/SMB passwords and settings are not touched.',
+      choices: [
+        { label: 'Clear sign-in session only', value: 'session', primary: true },
+        { label: 'Also sign out cloud connections', value: 'signout', danger: true }
+      ]
+    })
+    if (!choice) return
+    setClearingLogin(true)
+    try {
+      const { signedOut } = await window.conduit.auth.clearCache(choice === 'signout')
+      await confirmDialog({
+        title: 'Login cache cleared',
+        warning: signedOut.length
+          ? `Signed out: ${signedOut.join(', ')}. Open each connection and choose Authorize to sign in again.`
+          : 'The next sign-in will start with a fresh browser session.',
+        confirmText: 'OK'
+      })
+    } catch (err) {
+      await confirmDialog({ title: 'Could not clear login cache', warning: (err as Error).message, confirmText: 'OK' })
+    } finally {
+      setClearingLogin(false)
+    }
+  }
 
   useEffect(() => {
     void window.conduit.settings.get().then((s) => {
@@ -406,6 +438,22 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
                 />
                 <span className="st-toggle-slider" />
               </label>
+            </div>
+          </section>
+
+          {/* ── Accounts ──────────────────────────────────────── */}
+          <section className="settings-section">
+            <h3 className="settings-section-title">Accounts &amp; Sign-in</h3>
+            <div className="settings-row">
+              <div className="settings-label">
+                <span>Clear Login Cache</span>
+                <span className="settings-hint">
+                  Reset the Adobe / cloud sign-in session — fixes "wrong account" or stuck sign-ins for Frame.io and other cloud logins
+                </span>
+              </div>
+              <button className="btn ghost" disabled={clearingLogin} onClick={() => void clearLoginCache()}>
+                {clearingLogin ? 'Clearing…' : 'Clear…'}
+              </button>
             </div>
           </section>
 

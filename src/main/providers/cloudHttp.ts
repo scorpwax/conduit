@@ -14,13 +14,14 @@ function retryDelay(res: Response | null, attempt: number): number {
 
 /**
  * Run `doFetch` with retries for network errors, 429/5xx, and rate-limit 403s
- * (honoring Retry-After). A 401 triggers `onUnauthorized` (drop the cached
+ * (honoring Retry-After). With `rateLimitOnly`, only 429s are retried (safe for
+ * POST/PATCH/DELETE). A 401 triggers `onUnauthorized` (drop the cached
  * access token) and one immediate retry. `doFetch` must build a fresh request
  * each call (fresh token, fresh body) — streams cannot be replayed.
  */
 export async function withRetry(
   doFetch: () => Promise<Response>,
-  opts: { onUnauthorized?: () => void; maxAttempts?: number } = {}
+  opts: { onUnauthorized?: () => void; maxAttempts?: number; rateLimitOnly?: boolean } = {}
 ): Promise<Response> {
   const max = opts.maxAttempts ?? 6
   let refreshed = false
@@ -29,7 +30,9 @@ export async function withRetry(
     try {
       res = await doFetch()
     } catch (err) {
-      if (attempt >= max) throw err
+      // rateLimitOnly (non-idempotent writes): a network error may mean the request
+      // was processed, so never replay it.
+      if (opts.rateLimitOnly || attempt >= max) throw err
       await sleep(retryDelay(null, attempt))
       continue
     }
@@ -39,8 +42,9 @@ export async function withRetry(
       await res.arrayBuffer().catch(() => undefined)
       continue
     }
-    let retry = RETRYABLE.has(res.status)
-    if (!retry && res.status === 403) retry = RATE_LIMIT_403.test(await res.clone().text().catch(() => ''))
+    // A 429 means the request was rejected unprocessed, so it is always safe to replay.
+    let retry = opts.rateLimitOnly ? res.status === 429 : RETRYABLE.has(res.status)
+    if (!retry && !opts.rateLimitOnly && res.status === 403) retry = RATE_LIMIT_403.test(await res.clone().text().catch(() => ''))
     if (!retry || attempt >= max) return res
     await res.arrayBuffer().catch(() => undefined)
     await sleep(retryDelay(res, attempt))
