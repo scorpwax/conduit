@@ -579,7 +579,8 @@ export class FrameIoProvider implements Provider {
 
     switch (node.kind) {
       case 'workspace':
-        throw new Error('Deleting a whole Frame.io workspace from Conduit is not supported — do it in Frame.io.')
+        await this.req<void>('DELETE', `/v4/accounts/${accountId}/workspaces/${node.id}`)
+        break
       case 'stack':
         throw new Error('Deleting a Frame.io version stack from Conduit is not supported — delete it in Frame.io.')
       case 'project':

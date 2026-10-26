@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.33.2] — 2026-10-26
+
+### Fixed
+- **Frame.io: deleting a workspace** — workspaces can now be deleted from Conduit (`DELETE /workspaces/{id}`). Version stacks still must be deleted in Frame.io.
+
 ## [1.33.1] — 2026-10-26
 
 ### Changed
