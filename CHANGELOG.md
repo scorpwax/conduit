@@ -12,6 +12,13 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.33.3] — 2026-10-28
+
+### Fixed
+- **Folder uploads to Frame.io failed with "Path not found"** — uploading a folder (e.g. an external drive's `RAW/VIDEO` tree) into Frame.io failed for every file, because Conduit never created the destination folder there (it only did so for *empty* folders) and then couldn't find it. Frame.io uploads now create any missing folders/projects automatically, once, even with several files uploading in parallel (workspaces are never created implicitly). Failed lookups had also been re-listing the folder for every file, which tripped Frame.io's rate limit (HTTP 429) on large batches — that storm is gone.
+- **Frame.io "New Folder" no longer creates duplicates** — creating a folder or project that already exists is now a no-op instead of making a second one with the same name.
+- Uploading directly into a workspace or the Frame.io root now explains that you need to pick a project or folder.
+
 ## [1.33.2] — 2026-10-26
 
 ### Fixed

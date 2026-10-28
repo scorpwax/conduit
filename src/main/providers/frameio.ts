@@ -442,13 +442,13 @@ export class FrameIoProvider implements Provider {
     const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p
     const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
 
-    // Resolve the destination folder ID
-    let parentNode = this.nodes.get(parentPath)
-    if (!parentNode) {
-      await this.list(parentPath)
-      parentNode = this.nodes.get(parentPath)
-      if (!parentNode) throw new Error(`Destination folder not found: ${parentPath}`)
-    }
+    // Resolve (creating any missing folders along the way) the destination folder.
+    // Folder uploads reach here for files whose folder doesn't exist in Frame.io yet.
+    if (parentPath === '') throw new Error('Choose a workspace and project to upload into — files cannot go at the Frame.io root.')
+    await this.ensureFolder(parentPath)
+    const parentNode = this.nodes.get(parentPath)
+    if (!parentNode) throw new Error(`Destination folder not found: ${parentPath}`)
+    if (parentNode.kind === 'workspace') throw new Error('Open a project (or a folder inside it) to upload into — files cannot go directly in a workspace.')
     if (parentNode.kind === 'stack') throw new Error('Cannot upload into a Frame.io version stack — upload to its parent folder instead.')
     const folderId = parentNode.kind === 'project'
       ? (parentNode.rootFolderId ?? parentNode.id)
@@ -520,9 +520,55 @@ export class FrameIoProvider implements Provider {
    *   - in a workspace → a new project
    *   - in a project / folder → a new folder
    */
+  /** Folder paths currently being resolved/created, so parallel transfers share one creation. */
+  private folderOps = new Map<string, Promise<void>>()
+
+  /**
+   * Make sure the folder/project at `path` exists, creating missing folders and
+   * projects. Safe under parallel transfers (one creation per path). Workspaces are
+   * never created implicitly — a missing one is almost certainly a typo.
+   */
+  private ensureFolder(path: string): Promise<void> {
+    const p = this.norm(path)
+    if (!p || this.nodes.has(p)) return Promise.resolve()
+    const running = this.folderOps.get(p)
+    if (running) return running
+    const op = (async () => {
+      const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+      if (parentPath) await this.ensureFolder(parentPath)
+      // Refresh the parent's listing: the item may exist but not be cached yet.
+      await this.list(parentPath)
+      if (this.nodes.has(p)) return
+      if (!parentPath) throw new Error(`Workspace not found: ${p}`)
+      await this.createContainer(p)
+    })().finally(() => this.folderOps.delete(p))
+    this.folderOps.set(p, op)
+    return op
+  }
+
+  /**
+   * Create a container at `path` (no-op if it already exists, since Frame.io would
+   * otherwise happily make a duplicate). What that means depends on where it is:
+   *   - account root  → a new workspace
+   *   - in a workspace → a new project
+   *   - in a project / folder → a new folder
+   */
   async mkdir(path: string): Promise<void> {
     const p = this.norm(path)
     if (!p) throw new Error('Folder name is required')
+    if (this.nodes.has(p)) return
+    const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+    if (parentPath) await this.ensureFolder(parentPath)
+    await this.list(parentPath)
+    if (this.nodes.has(p)) return
+    const running = this.folderOps.get(p)
+    if (running) return running
+    const op = this.createContainer(p).finally(() => this.folderOps.delete(p))
+    this.folderOps.set(p, op)
+    return op
+  }
+
+  private async createContainer(p: string): Promise<void> {
     const accountId = await this.getAccountId()
     const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p
     const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
@@ -535,12 +581,8 @@ export class FrameIoProvider implements Provider {
       return
     }
 
-    let parentNode = this.nodes.get(parentPath)
-    if (!parentNode) {
-      await this.list(parentPath)
-      parentNode = this.nodes.get(parentPath)
-      if (!parentNode) throw new Error(`Parent not found: ${parentPath}`)
-    }
+    const parentNode = this.nodes.get(parentPath)
+    if (!parentNode) throw new Error(`Parent not found: ${parentPath}`)
     if (parentNode.kind === 'stack') throw new Error('Cannot create a folder inside a Frame.io version stack.')
     if (parentNode.kind === 'file') throw new Error(`"${parentPath}" is a file, not a folder.`)
 
