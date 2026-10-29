@@ -626,8 +626,9 @@ export class FrameIoProvider implements Provider {
 
     // Frame.io is now pulling the file. Poll until it reports success or failure.
     const startedAt = Date.now()
-    const deadline = startedAt + Math.max(30 * 60_000, (size / (1024 * 1024)) * 1000 * 2) // ≥ 30 min, or 2 s per MB
+    const deadline = startedAt + Math.max(30 * 60_000, (size / (1024 * 1024)) * 500) // ≥ 30 min, or 0.5 s per MB (2 MB/s floor)
     let errors = 0
+    let lastStatusLog = 0
     for (let wait = 1000; ; wait = Math.min(wait * 1.5, 8000)) {
       if (isCanceled()) { await discard(); throw new Error('canceled') }
       await sleep(wait)
@@ -636,6 +637,11 @@ export class FrameIoProvider implements Provider {
           'GET', `/v4/accounts/${accountId}/files/${fileId}/status`
         )
         errors = 0
+        // Diagnostic: if Frame.io ever adds progress fields to this response we want to see them.
+        if (Date.now() - lastStatusLog > 60_000) {
+          lastStatusLog = Date.now()
+          log.info('transfer', `Frame.io remote-upload status for "${name}": ${JSON.stringify(res.data)}`)
+        }
         if (res.data?.upload_complete) {
           // Verify from Frame.io's side that it holds exactly the bytes we expect.
           let stored: number | undefined

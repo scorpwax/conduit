@@ -12,6 +12,13 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.33.6] — 2026-10-29
+
+### Fixed
+- **Direct Wasabi → Frame.io transfers looked frozen** — while Frame.io fetches a file itself there's no byte count to show, so rows sat at "— / 48 GB" and 0%. Each row now says "Frame.io is fetching directly from Wasabi" with a running timer, the overall bar says the same, and the log records when each direct transfer starts.
+- **Estimated progress for direct transfers** — rows show "~N% (estimate)" and a running timer, based on how fast Frame.io fetched earlier files (capped at 95% until Frame.io confirms the file is complete). Frame.io's own status reports no byte progress, so this is an estimate, not a measurement. Conduit also logs Frame.io's raw status once a minute during a direct transfer, in case it exposes real progress.
+- Direct-transfer timeout is now based on a 2 MB/s floor (was far longer for very large files), after which Conduit falls back to a normal transfer.
+
 ## [1.33.5] — 2026-10-29
 
 ### Added

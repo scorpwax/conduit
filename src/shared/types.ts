@@ -208,6 +208,8 @@ export interface TransferItem {
   error?: string
   /** bytes/sec, updated as it runs. */
   speed?: number
+  /** Short live status shown in place of speed when no byte progress is available (e.g. direct cloud fetch). */
+  note?: string
   startedAt?: number
   finishedAt?: number
   /** Byte offset to resume from (set by engine.retry when a partial file exists). */

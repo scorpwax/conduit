@@ -42,6 +42,8 @@ class TransferEngine extends EventEmitter {
   private activeStreams = new Map<string, import('stream').Readable>()
   private running = 0
   private concurrency = 5
+  /** Learned Frame.io remote-fetch speed (bytes/sec), used only for the progress estimate. */
+  private directFetchBps = 20 * 1024 * 1024
   private seq = 0
   private progressTimer: ReturnType<typeof setInterval> | null = null
 
@@ -464,11 +466,24 @@ class TransferEngine extends EventEmitter {
    */
   private async tryDirect(item: TransferItem, source: Provider, dest: Provider): Promise<boolean> {
     const isCanceled = (): boolean => this.canceled.has(item.id)
+    let noteTimer: ReturnType<typeof setInterval> | null = null
     try {
       const before = await source.stat(item.source.path)
       const total = before.size ?? item.bytesTotal
       if (!(total > 0)) return false
 
+      // Frame.io reports no byte progress for a remote fetch, so show an *estimated* percentage
+      // (elapsed time × the fetch speed measured on earlier files, capped at 95%) to make it
+      // visible that work is happening. The real completion still comes from Frame.io.
+      const beganAt = Date.now()
+      const setNote = (): void => {
+        const est = Math.min(0.95, ((Date.now() - beganAt) / 1000) * this.directFetchBps / total)
+        item.note = `Frame.io is fetching directly from Wasabi · ~${Math.round(est * 100)}% (estimate)`
+        this.emit('update', [item])
+      }
+      setNote()
+      noteTimer = setInterval(setNote, 2000)
+      log.info('transfer', `Direct transfer started for "${item.name}" (${(total / 1e9).toFixed(1)} GB) — the destination is fetching it; no byte progress is reported until it finishes`)
       for (let attempt = 1; attempt <= 2; attempt++) {
         // Expected duration at a pessimistic 25 MB/s, plus a 5-minute margin; 5–60 min overall.
         const ttl = Math.min(3600, 300 + Math.ceil(total / (25 * 1024 * 1024)))
@@ -492,11 +507,17 @@ class TransferEngine extends EventEmitter {
           throw new Error('Source file changed during the transfer — the partial copy was removed; try again')
         }
         item.bytesTotal = total
+        // Learn how fast Frame.io fetches so later estimates are realistic.
+        const secs = (Date.now() - beganAt) / 1000
+        if (secs > 5) this.directFetchBps = Math.round(this.directFetchBps * 0.5 + (total / secs) * 0.5)
         return true
       }
     } catch (err) {
       if (isCanceled() || /changed during the transfer/.test((err as Error).message)) throw err
       log.warn('transfer', `Direct transfer of "${item.name}" unavailable (${(err as Error).message}) — relaying instead`)
+    } finally {
+      if (noteTimer) clearInterval(noteTimer)
+      item.note = undefined
     }
     return false
   }

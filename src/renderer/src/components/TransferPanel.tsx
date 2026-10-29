@@ -104,7 +104,7 @@ export function TransferPanel({
 		const liveIds = new Set<string>()
 		for (const t of transfers) {
 			liveIds.add(t.id)
-			const isWaiting = t.status === 'transferring' && t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal
+			const isWaiting = t.status === 'transferring' && !!(t.note || (t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal))
 			if (isWaiting) {
 				if (!map.has(t.id)) map.set(t.id, Date.now())
 			} else {
@@ -262,7 +262,7 @@ export function TransferPanel({
 	// "Waiting for server" — all active files have sent their bytes and are now
 	// waiting for the server's HTTP 200 confirmation (common for large files).
 	const isWaitingForServer =
-		activeFiles.length > 0 && activeFiles.every((t) => t.bytesDone >= t.bytesTotal)
+		activeFiles.length > 0 && activeFiles.every((t) => t.note || t.bytesDone >= t.bytesTotal)
 
 	// Sample aggregate speed once per tick for the overall-progress sparkline.
 	useEffect(() => {
@@ -340,7 +340,9 @@ export function TransferPanel({
 											: ' status-success'
 							}`}
 						>
-							{isWaitingForServer
+							{activeFiles.length > 0 && activeFiles.every((t) => t.note)
+								? 'Frame.io is fetching files directly from Wasabi…'
+								: isWaitingForServer
 								? 'Waiting for server…'
 								: active.length > 0
 									? (() => {
@@ -458,7 +460,7 @@ export function TransferPanel({
 										</div>
 									)}
 									{sorted.map((t) => {
-										const rowIsWaiting = t.status === 'transferring' && t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal
+										const rowIsWaiting = t.status === 'transferring' && !!(t.note || (t.bytesTotal > 0 && t.bytesDone >= t.bytesTotal))
 										const waitElapsed = rowIsWaiting
 											? now - (waitingStartRef.current.get(t.id) ?? now)
 											: null
@@ -618,7 +620,7 @@ const TransferRow = memo(function TransferRow({ item, onCancel, onRetry, waitEla
 					<span className="tmeta">
 						{item.status === 'transferring'
 							? isWaiting
-								? `Waiting for server${waitElapsed >= 1000 ? ` · ${formatDuration(waitElapsed)}` : ''}`
+								? `${item.note ?? 'Waiting for server'}${waitElapsed >= 1000 ? ` · ${formatDuration(waitElapsed)}` : ''}`
 								: formatSpeed(item.speed ?? fallbackSpeed)
 							: item.status === 'queued'
 								? '—'
