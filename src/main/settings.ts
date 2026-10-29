@@ -10,6 +10,7 @@ const DEFAULTS: AppSettings = {
   transferConcurrency: 5,
   adaptiveConnectionSpeed: false,
   lowBandwidthWarning: true,
+  directCloudTransfer: true,
   lowBandwidthThresholdBps: 1_000_000,
   visibleColumns: ['size', 'type', 'modified']
 }

@@ -74,6 +74,25 @@ export interface Provider {
   getLocalRoot?(): Promise<string | null>
 
   /**
+   * Optional: a temporary, signed https URL from which another service can fetch
+   * the file directly (S3/Wasabi presigned GET). Never log the result — it embeds a signature.
+   */
+  getDownloadUrl?(path: string, ttlSeconds: number): Promise<string>
+
+  /**
+   * Optional: have the destination service fetch `url` itself instead of receiving
+   * the bytes from us. Resolves true when the file was imported; false when the
+   * caller should fall back to a normal upload (nothing is left behind in that case).
+   */
+  importFromUrl?(
+    path: string,
+    url: string,
+    size: number,
+    onProgress: ((bytesWritten: number) => void) | undefined,
+    isCanceled: () => boolean
+  ): Promise<boolean>
+
+  /**
    * Return a checksum for the file at path. Returns null for providers that
    * don't support checksums.
    *

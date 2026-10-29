@@ -281,6 +281,8 @@ export interface AppSettings {
   lowBandwidthWarning?: boolean
   /** Throughput threshold (bytes/sec) below which the low-bandwidth warning appears. */
   lowBandwidthThresholdBps?: number
+  /** Let Frame.io fetch files straight from Wasabi/S3 (Wasabi → Frame.io) instead of relaying them through this computer. Default on. */
+  directCloudTransfer?: boolean
   /** Which metadata columns show in the explorer file list, beyond Name (always shown). */
   visibleColumns?: FileListColumnKey[]
 }

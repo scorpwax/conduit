@@ -12,6 +12,28 @@ uses [Semantic Versioning](https://semver.org/): **MAJOR.MINOR.PATCH**
 
 _Work in progress lands here, then moves under a version heading on release._
 
+## [1.33.5] — 2026-10-29
+
+### Added
+- **Direct Wasabi → Frame.io transfers** — Conduit now asks Frame.io to fetch the file straight from Wasabi/S3 (a temporary signed link that expires shortly after the transfer should finish — 5 to 60 minutes depending on file size) instead of downloading it to your computer and uploading it again. Large transfers no longer depend on your internet speed or use your memory. If Frame.io can't fetch a file, Conduit removes the partial file and falls back to the normal transfer automatically. The link is made fresh for each attempt, kept only in memory, never logged, and dropped the moment the attempt ends (a signed link can't be cancelled early, so keeping it short is the protection). Conduit confirms from both ends: Frame.io reports the upload complete with the expected byte count, and the Wasabi file is unchanged afterward — otherwise the copy is removed and the transfer retried or relayed. On by default; turn off under Settings → "Direct Wasabi → Frame.io Transfers". Progress shows when each file finishes rather than byte-by-byte.
+
+### Changed
+- **Frame.io uploads from a local drive read straight from disk** — each chunk is read by byte offset only while it is being sent, and re-read on retry, instead of streaming the whole file through memory first.
+- **Frame.io upload chunks run 5 in parallel per file** (was 4), matching Frame.io's own SDK.
+
+### Fixed
+- **Silent half-uploads** — after sending all chunks, Conduit now confirms with Frame.io that the file was fully assembled (and that the byte count matches), failing the transfer with a clear message if Frame.io reports the upload failed.
+- A failed chunk now stops the remaining chunks of that file from being sent.
+
+Includes all the 1.33.4 fixes below.
+
+## [1.33.4] — 2026-10-28
+
+### Fixed
+- **Frame.io uploads ran out of memory ("Failed to allocate memory") and used ~30% of RAM** — each upload re-copied its growing chunk buffer on every 64 KB read (quadratic work and a lot of garbage), and with many large files at once every one held several multi-MB chunks in memory. Chunks are now assembled once, and all in-flight Frame.io chunks share a 384 MB memory budget.
+- **Frame.io uploads stay fast with many files in parallel** — there's no cap on simultaneous large uploads (use the concurrency setting, like uploading several files in the browser); memory is bounded by the shared budget instead. Each chunk upload also retries on network/5xx errors instead of failing the whole file.
+- **Empty (0-byte) files like `SONYCARD.IND`** no longer show as failures — Frame.io rejects files with no content, so they are skipped with a note.
+
 ## [1.33.3] — 2026-10-28
 
 ### Fixed

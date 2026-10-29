@@ -1,6 +1,6 @@
 {
 	"name": "conduit",
-	"version": "1.33.3",
+	"version": "1.33.5",
 	"description": "Conduit — a dual-pane file transfer app for local, external, and cloud storage.",
 	"main": "./out/main/index.js",
 	"author": "Mike Wax",
@@ -26,6 +26,7 @@
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.637.0",
 		"@aws-sdk/lib-storage": "^3.637.0",
+		"@aws-sdk/s3-request-presigner": "^3.1079.0",
 		"basic-ftp": "^6.0.1",
 		"electron-updater": "^6.3.0",
 		"material-symbols": "^0.45.8",

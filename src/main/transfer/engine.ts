@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events'
+import type { Readable } from 'stream'
+import { getSettings } from '../settings'
 import type { TransferItem, TransferRequest } from '@shared/types'
 import { getProvider, type Provider } from '../providers'
 import { connectionStore } from '../store'
@@ -451,6 +453,54 @@ class TransferEngine extends EventEmitter {
     }
   }
 
+  /**
+   * Have the destination fetch the file straight from the source's signed URL.
+   *
+   * The signed link is as short-lived as we can make it (a signed URL can't be revoked,
+   * only left to expire): the transfer's expected duration plus a margin. It lives only
+   * in a local variable for one attempt — never stored, logged, or reused. A retry (or the
+   * second attempt here) always signs a brand-new link. Returns false when the caller
+   * should fall back to the normal relay; nothing is left behind in that case.
+   */
+  private async tryDirect(item: TransferItem, source: Provider, dest: Provider): Promise<boolean> {
+    const isCanceled = (): boolean => this.canceled.has(item.id)
+    try {
+      const before = await source.stat(item.source.path)
+      const total = before.size ?? item.bytesTotal
+      if (!(total > 0)) return false
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        // Expected duration at a pessimistic 25 MB/s, plus a 5-minute margin; 5–60 min overall.
+        const ttl = Math.min(3600, 300 + Math.ceil(total / (25 * 1024 * 1024)))
+        let url: string | null = await source.getDownloadUrl!(item.source.path, ttl)
+        let ok = false
+        try {
+          ok = await dest.importFromUrl!(item.dest.path, url, total, (n) => { item.bytesDone = n }, isCanceled)
+        } finally {
+          url = null // drop our only reference the moment the attempt ends, success or not
+        }
+        if (isCanceled()) throw new Error('canceled')
+        if (!ok) {
+          if (attempt < 2) log.info('transfer', `Direct transfer of "${item.name}" did not complete — retrying with a new link`)
+          continue
+        }
+
+        // Confirm the source wasn't changed underneath the transfer.
+        const after = await source.stat(item.source.path)
+        if (after.size !== before.size || after.modified !== before.modified || (after.etag ?? null) !== (before.etag ?? null)) {
+          try { await dest.delete(item.dest.path, 'file') } catch { /* best effort */ }
+          throw new Error('Source file changed during the transfer — the partial copy was removed; try again')
+        }
+        item.bytesTotal = total
+        return true
+      }
+    } catch (err) {
+      if (isCanceled() || /changed during the transfer/.test((err as Error).message)) throw err
+      log.warn('transfer', `Direct transfer of "${item.name}" unavailable (${(err as Error).message}) — relaying instead`)
+    }
+    return false
+  }
+
   private async run(item: TransferItem): Promise<void> {
     if (this.canceled.has(item.id)) return
     item.status = 'transferring'
@@ -465,11 +515,25 @@ class TransferEngine extends EventEmitter {
       const source = await getProvider(item.source.connectionId)
       const dest = await getProvider(item.dest.connectionId)
 
-      const { stream, size } = await source.createReadStream(item.source.path, resumeOffset)
+      // Direct cloud → cloud: when the destination can fetch from a URL (Frame.io) and the
+      // source can mint one (S3/Wasabi), the destination pulls the file itself — nothing
+      // passes through this computer. Any failure falls back to the normal relay below.
+      const direct =
+        resumeOffset === 0 && source.getDownloadUrl && dest.importFromUrl && (await getSettings()).directCloudTransfer !== false
+          ? await this.tryDirect(item, source, dest)
+          : false
+
+      let stream: Readable | null = null
+      let size = item.bytesTotal
+      if (!direct) {
+        const opened = await source.createReadStream(item.source.path, resumeOffset)
+        stream = opened.stream
+        size = opened.size
+      }
       // Prefer the size from createReadStream (re-stats the file) over the enqueue-time
       // stat, which can be stale or zero if the file was briefly inaccessible.
       if (size) item.bytesTotal = size
-      this.activeStreams.set(item.id, stream)
+      if (stream) this.activeStreams.set(item.id, stream)
 
       // The progress callback ONLY updates counters — no emit, no downstream work.
       // The progressTimer reads these counters every 250 ms and batches the update.
@@ -478,7 +542,7 @@ class TransferEngine extends EventEmitter {
       const SPEED_WINDOW_MS = 5000
       const onProgress = (written: number): void => {
         if (this.canceled.has(item.id)) {
-          stream.destroy(new Error('canceled'))
+          stream?.destroy(new Error('canceled'))
           return
         }
         item.bytesDone = written
@@ -492,7 +556,7 @@ class TransferEngine extends EventEmitter {
         }
       }
 
-      await dest.writeFile(item.dest.path, stream, item.bytesTotal, onProgress, resumeOffset)
+      if (!direct && stream) await dest.writeFile(item.dest.path, stream, item.bytesTotal, onProgress, resumeOffset)
 
       if (this.canceled.has(item.id)) {
         item.status = 'canceled'

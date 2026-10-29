@@ -1,4 +1,5 @@
 import { Readable } from 'stream'
+import { ReadStream, promises as fsp } from 'fs'
 import { posix } from 'path'
 import type { Connection, FileEntry, ListResult, ConnectionTestResult, FrameIoConfig, FolderSizeResult } from '@shared/types'
 import type { Provider } from './types'
@@ -454,6 +455,24 @@ export class FrameIoProvider implements Provider {
       ? (parentNode.rootFolderId ?? parentNode.id)
       : parentNode.id
 
+    if (!(size > 0)) {
+      const err = new Error('Frame.io cannot store empty (0-byte) files') as Error & { code?: string }
+      err.code = 'NOT_READY' // reported as a skip, not a failure
+      throw err
+    }
+
+    await this.uploadBody(accountId, folderId, p, name, body, size, onProgress)
+  }
+
+  private async uploadBody(
+    accountId: string,
+    folderId: string,
+    p: string,
+    name: string,
+    body: Readable,
+    size: number,
+    onProgress?: (bytesWritten: number) => void
+  ): Promise<void> {
     const mediaType = mediaMime(name)
 
     // Step 1: Create the file placeholder and get presigned S3 upload URLs
@@ -469,49 +488,215 @@ export class FrameIoProvider implements Provider {
     // Cache the new file node
     this.nodes.set(p, { id: fileId, kind: 'file' })
 
-    // Step 2: Sliding-window parallel upload.
-    // Read one chunk at a time and immediately dispatch its upload, keeping up
-    // to PARALLEL PUTs in-flight simultaneously. This way uploads start as soon
-    // as the first chunk is read — no need to buffer the entire file first.
-    const PARALLEL = 8
-    const reader = new ChunkedReader(body)
+    // Step 2: Parallel chunk upload. Each chunk's byte range comes straight from the
+    // presigned URL sizes Frame.io returned.
+    //  - Local file source: each chunk is read from disk by byte offset, only while its
+    //    PUT is running, and re-read on retry (no sequential read-through, no buffer held
+    //    between attempts).
+    //  - Any other source (e.g. Wasabi → Frame.io): the stream is cut into chunks in order.
+    // Either way, chunk memory is reserved from a shared budget so parallel transfers
+    // can't exhaust RAM.
+    const PARALLEL = 5
+    const diskPath = localSourcePath(body)
+    const reader = diskPath ? null : new ChunkedReader(body)
     const chunkBytes = new Array(uploadUrls.length).fill(0)
     const inFlight: Promise<void>[] = []
-    let chunkIdx = 0
+    let failure: Error | null = null
+    let offset = 0
 
-    for (const { url, size: chunkSize } of uploadUrls) {
-      const data = await reader.read(chunkSize)
-      if (!data || data.length === 0) break
-
-      const idx = chunkIdx++
-      const upload = (async (chunkData: Buffer, chunkUrl: string, chunkI: number) => {
-        const res = await fetch(chunkUrl, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': mediaType,
-            'x-amz-acl': 'private',
-            'Content-Length': String(chunkData.length)
-          },
-          body: chunkData,
-          // @ts-ignore — Node 18 fetch needs duplex for streaming bodies
-          duplex: 'half'
-        })
-        if (!res.ok) throw new Error(`Frame.io upload chunk ${chunkI} failed (${res.status}): ${await res.text()}`)
-        chunkBytes[chunkI] = chunkData.length
-        if (onProgress) onProgress(chunkBytes.reduce((a, b) => a + b, 0))
-      })(data, url, idx)
-
-      inFlight.push(upload)
-
-      // Once we hit the concurrency limit, wait for the oldest in-flight upload
-      // to complete before reading (and dispatching) the next chunk.
-      if (inFlight.length >= PARALLEL) {
-        await inFlight.shift()
+    const putChunk = async (getData: () => Promise<Buffer>, url: string, i: number): Promise<void> => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const chunkData = await getData()
+          const res = await fetch(url, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': mediaType,
+              'x-amz-acl': 'private',
+              'Content-Length': String(chunkData.length)
+            },
+            body: chunkData,
+            // @ts-ignore — Node 18 fetch needs duplex for streaming bodies
+            duplex: 'half'
+          })
+          if (res.ok) { chunkBytes[i] = chunkData.length; return }
+          const text = await res.text()
+          if (attempt >= 4 || res.status < 500) throw Object.assign(new Error(`Frame.io upload chunk ${i} failed (${res.status}): ${text}`), { fatal: true })
+        } catch (err) {
+          if (attempt >= 4 || (err as { fatal?: boolean }).fatal || (diskPath && body.destroyed)) throw err
+        }
+        await sleep(1000 * 2 ** (attempt - 1))
       }
     }
 
-    // Drain any remaining in-flight uploads.
-    await Promise.all(inFlight)
+    try {
+      for (let i = 0; i < uploadUrls.length; i++) {
+        if (failure) break
+        const { url, size: chunkSize } = uploadUrls[i]
+        let len = chunkSize
+        let data: Buffer | null = null
+        if (diskPath) {
+          len = Math.min(chunkSize, size - offset)
+          if (len <= 0) break
+          if (body.destroyed) throw new Error('canceled')
+        }
+        const reserved = await uploadMemory.acquire(len)
+        if (!diskPath) {
+          try {
+            data = await reader!.read(chunkSize)
+          } catch (err) {
+            uploadMemory.release(reserved)
+            throw err
+          }
+          if (!data || data.length === 0) { uploadMemory.release(reserved); break }
+        }
+
+        const start = offset
+        offset += len
+        const getData = diskPath
+          ? () => readSlice(diskPath, start, len)
+          : () => Promise.resolve(data!)
+        const upload = putChunk(getData, url, i)
+          .then(() => { if (onProgress) onProgress(chunkBytes.reduce((a, b) => a + b, 0)) })
+          .catch((err) => { failure = failure ?? err })
+          .finally(() => { data = null; uploadMemory.release(reserved) })
+        inFlight.push(upload)
+
+        // Once we hit the concurrency limit, wait for the oldest in-flight upload
+        // to complete before dispatching the next chunk.
+        if (inFlight.length >= PARALLEL) await inFlight.shift()
+      }
+      await Promise.all(inFlight)
+    } finally {
+      await Promise.allSettled(inFlight)
+      if (diskPath) body.destroy()
+    }
+    if (failure) throw failure
+    const sent = chunkBytes.reduce((a, b) => a + b, 0)
+    if (sent !== size) throw new Error(`Frame.io upload of "${name}" incomplete: sent ${sent} of ${size} bytes`)
+
+    // Step 3: Confirm Frame.io has assembled the file.
+    await this.confirmUpload(accountId, fileId, name)
+  }
+
+  /** Set once Frame.io rejects remote uploads outright (e.g. not enabled), so we stop trying. */
+  private remoteUploadUnavailable = false
+
+  /**
+   * Remote upload: Frame.io downloads the file from `url` itself, so nothing passes
+   * through this computer. Returns false (leaving nothing behind) whenever the caller
+   * should fall back to a normal chunked upload.
+   */
+  async importFromUrl(
+    path: string,
+    url: string,
+    size: number,
+    onProgress: ((bytesWritten: number) => void) | undefined,
+    isCanceled: () => boolean
+  ): Promise<boolean> {
+    if (this.remoteUploadUnavailable || !(size > 0)) return false
+    const p = this.norm(path)
+    const accountId = await this.getAccountId()
+    const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p
+    const parentPath = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+    if (parentPath === '') return false
+    await this.ensureFolder(parentPath)
+    const parentNode = this.nodes.get(parentPath)
+    if (!parentNode || parentNode.kind === 'workspace' || parentNode.kind === 'stack') return false
+    const folderId = parentNode.kind === 'project' ? (parentNode.rootFolderId ?? parentNode.id) : parentNode.id
+
+    let fileId: string
+    try {
+      const res = await this.req<FioResponse<FioAsset>>(
+        'POST',
+        `/v4/accounts/${accountId}/folders/${folderId}/files/remote_upload`,
+        { data: { name, source_url: url } }
+      )
+      fileId = res.data.id
+    } catch (err) {
+      const msg = (err as Error).message
+      if (/\b(403|404|405)\b/.test(msg)) this.remoteUploadUnavailable = true
+      log.warn('transfer', `Frame.io remote upload not available for "${name}" (${msg.replace(/https?:\/\/\S+/g, '<url>')}) — falling back to normal upload`)
+      return false
+    }
+
+    const discard = async (): Promise<void> => {
+      try { await this.req('DELETE', `/v4/accounts/${accountId}/files/${fileId}`) } catch { /* best effort */ }
+    }
+
+    // Frame.io is now pulling the file. Poll until it reports success or failure.
+    const startedAt = Date.now()
+    const deadline = startedAt + Math.max(30 * 60_000, (size / (1024 * 1024)) * 1000 * 2) // ≥ 30 min, or 2 s per MB
+    let errors = 0
+    for (let wait = 1000; ; wait = Math.min(wait * 1.5, 8000)) {
+      if (isCanceled()) { await discard(); throw new Error('canceled') }
+      await sleep(wait)
+      try {
+        const res = await this.req<{ data?: { upload_complete?: boolean; upload_failed?: boolean } }>(
+          'GET', `/v4/accounts/${accountId}/files/${fileId}/status`
+        )
+        errors = 0
+        if (res.data?.upload_complete) {
+          // Verify from Frame.io's side that it holds exactly the bytes we expect.
+          let stored: number | undefined
+          try {
+            stored = (await this.req<FioResponse<FioAsset>>('GET', `/v4/accounts/${accountId}/files/${fileId}`)).data.file_size
+          } catch { /* size is best-effort; completion was already confirmed */ }
+          if (stored && stored !== size) {
+            log.warn('transfer', `Frame.io stored ${stored} bytes for "${name}" but ${size} were expected — falling back to normal upload`)
+            await discard()
+            return false
+          }
+          this.nodes.set(p, { id: fileId, kind: 'file' })
+          onProgress?.(size)
+          return true
+        }
+        if (res.data?.upload_failed) {
+          log.warn('transfer', `Frame.io could not fetch "${name}" directly — falling back to normal upload`)
+          await discard()
+          return false
+        }
+      } catch (err) {
+        if (++errors >= 5) {
+          log.warn('transfer', `Lost track of Frame.io remote upload of "${name}": ${(err as Error).message} — falling back to normal upload`)
+          await discard()
+          return false
+        }
+      }
+      if (Date.now() > deadline) {
+        log.warn('transfer', `Frame.io remote upload of "${name}" timed out — falling back to normal upload`)
+        await discard()
+        return false
+      }
+    }
+  }
+
+  /**
+   * Poll the file's upload status until Frame.io reports it complete. A reported
+   * failure is an error; an unreachable status endpoint or a slow assembly only
+   * logs a warning (the bytes were all accepted), so it can't fail a good upload.
+   */
+  private async confirmUpload(accountId: string, fileId: string, name: string): Promise<void> {
+    const deadline = Date.now() + 90_000
+    for (let wait = 500; ; wait = Math.min(wait * 2, 5000)) {
+      try {
+        const res = await this.req<{ data?: { upload_complete?: boolean; upload_failed?: boolean } }>(
+          'GET',
+          `/v4/accounts/${accountId}/files/${fileId}/status`
+        )
+        if (res.data?.upload_failed) throw Object.assign(new Error(`Frame.io reported the upload of "${name}" failed — try again`), { fatal: true })
+        if (res.data?.upload_complete) return
+      } catch (err) {
+        if ((err as { fatal?: boolean }).fatal) throw err
+        log.warn('transfer', `Could not confirm Frame.io upload status for "${name}": ${(err as Error).message}`)
+        return
+      }
+      if (Date.now() + wait > deadline) {
+        log.warn('transfer', `Frame.io had not finished assembling "${name}" after 90s; continuing`)
+        return
+      }
+      await sleep(wait)
+    }
   }
 
   /**
@@ -763,7 +948,8 @@ export class FrameIoProvider implements Provider {
  * to individual presigned URLs in order without loading the full file into memory.
  */
 class ChunkedReader {
-  private buf = Buffer.alloc(0)
+  private parts: Buffer[] = []
+  private len = 0
   private iter: AsyncIterator<Buffer | Uint8Array>
   private done = false
 
@@ -772,15 +958,70 @@ class ChunkedReader {
   }
 
   async read(n: number): Promise<Buffer | null> {
-    while (!this.done && this.buf.length < n) {
+    // Collect pieces and concatenate once; re-concatenating per 64 KB read is quadratic.
+    while (!this.done && this.len < n) {
       const { value, done } = await this.iter.next()
       if (done) { this.done = true; break }
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value)
-      this.buf = Buffer.concat([this.buf, chunk])
+      this.parts.push(chunk)
+      this.len += chunk.length
     }
-    if (this.buf.length === 0) return null
-    const out = this.buf.slice(0, n)
-    this.buf = this.buf.slice(n)
+    if (this.len === 0) return null
+    const all = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts, this.len)
+    const take = Math.min(n, all.length)
+    // Copy so the returned chunk doesn't pin the larger buffer once uploaded.
+    const out = Buffer.from(all.subarray(0, take))
+    const rest = all.subarray(take)
+    this.parts = rest.length ? [rest] : []
+    this.len = rest.length
     return out
   }
 }
+
+/** The local file path behind a stream, when it is an unconsumed read from byte 0 of a local file. */
+function localSourcePath(body: Readable): string | null {
+  if (!(body instanceof ReadStream) || typeof body.path !== 'string') return null
+  if ((body as unknown as { start?: number }).start) return null
+  return body.path
+}
+
+async function readSlice(path: string, start: number, len: number): Promise<Buffer> {
+  const fh = await fsp.open(path, 'r')
+  try {
+    const buf = Buffer.allocUnsafe(len)
+    let got = 0
+    while (got < len) {
+      const { bytesRead } = await fh.read(buf, got, len - got, start + got)
+      if (bytesRead === 0) throw new Error(`File changed while uploading: expected ${len} bytes at offset ${start}, got ${got}`)
+      got += bytesRead
+    }
+    return buf
+  } finally {
+    await fh.close()
+  }
+}
+
+/** Total memory Frame.io upload chunks may hold at once, across all parallel transfers. */
+const UPLOAD_MEMORY_BUDGET = 384 * 1024 * 1024
+
+/** Byte budget shared by every in-flight Frame.io chunk, across all transfers. */
+class ByteBudget {
+  private waiters: Array<{ n: number; run: () => void }> = []
+  constructor(private free: number, private readonly total: number) {}
+  async acquire(n: number): Promise<number> {
+    n = Math.min(Math.max(n, 1), this.total)
+    if (this.free >= n && !this.waiters.length) { this.free -= n; return n }
+    await new Promise<void>((run) => this.waiters.push({ n, run }))
+    return n
+  }
+  release(n: number): void {
+    this.free += n
+    while (this.waiters.length && this.free >= this.waiters[0].n) {
+      const w = this.waiters.shift()!
+      this.free -= w.n
+      w.run()
+    }
+  }
+}
+
+const uploadMemory = new ByteBudget(UPLOAD_MEMORY_BUDGET, UPLOAD_MEMORY_BUDGET)

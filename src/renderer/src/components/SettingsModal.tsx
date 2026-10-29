@@ -252,6 +252,21 @@ export function SettingsModal({ onClose, onDownloadDirChange, showHidden, onTogg
               </label>
             </div>
 
+            <div className="settings-row">
+              <div className="settings-label">
+                <span>Direct Wasabi → Frame.io Transfers</span>
+                <span className="settings-hint">Let Frame.io fetch files straight from Wasabi/S3 instead of sending them through this computer — much faster on slow connections. Falls back to a normal transfer automatically if it can't.</span>
+              </div>
+              <label className="st-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.directCloudTransfer ?? true}
+                  onChange={(e) => setSettings({ ...settings, directCloudTransfer: e.target.checked })}
+                />
+                <span className="st-toggle-slider" />
+              </label>
+            </div>
+
             <div className="settings-row settings-row-indent">
               <div className="settings-label">
                 <span>Concurrent Transfers</span>

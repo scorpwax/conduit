@@ -17,6 +17,7 @@ import {
   AbortMultipartUploadCommand
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { readFileSync } from 'fs'
 import { caListWithFile } from '../tlsTrust'
@@ -192,6 +193,11 @@ export class S3Provider implements Provider {
     // Adding the offset back gives the true total size for progress display.
     const size = (res.ContentLength ?? 0) + offset
     return { stream: res.Body as Readable, size }
+  }
+
+  async getDownloadUrl(path: string, ttlSeconds: number): Promise<string> {
+    const key = path.replace(/^\/+/, '')
+    return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.cfg.bucket, Key: key }), { expiresIn: ttlSeconds })
   }
 
   async writeFile(
